@@ -353,7 +353,7 @@ public class BeatMinecraftTask extends Task {
 
     @Override
     protected void onStop(Task interruptTask) {
-        if (currentSubTask != null) {
+        if (stopped() && currentSubTask != null) {
             currentSubTask.stop(interruptTask);
         }
     }

@@ -222,16 +222,17 @@ public class MarvionBeatMinecraftTask extends Task {
         } else {
             // Overworld Strict Ordered Progression with Prerequisite Fallback: NO DEAD ENDS!
 
-            // Fallback 1: Wood Stockpile
-            // Maintain adequate wood before iron tier so the bot is never caught without planks or sticks
-            if (pickTier.getLevel() < ToolTier.IRON.getLevel() && logs < 4 && totalWoodPlanks < 16) {
+            // Prerequisite Fallbacks:
+            // Fallback 1: No Pickaxe and no wood to make one
+            if (!hasPickaxe && totalWoodPlanks < 4) {
                 currentPhase = SpeedrunPhase.START_WOOD;
             }
-            // Fallback 2: Basic Crafting Table & Sticks Availability
+            // Fallback 2: No Crafting Table and cannot make one
             else if (!canMakeTable) {
                 currentPhase = SpeedrunPhase.START_WOOD;
             }
-            else if (sticks < 2 && totalWoodPlanks < 1) {
+            // Fallback 3: No sticks and no wood when needing to craft tools
+            else if (sticks < 2 && totalWoodPlanks < 1 && (pickTier.getLevel() < ToolTier.STONE.getLevel() || rawIron >= 3 || diamonds >= 3)) {
                 currentPhase = SpeedrunPhase.START_WOOD;
             }
             // Step 1: No Pickaxe at all (or tool broken)
@@ -673,11 +674,13 @@ public class MarvionBeatMinecraftTask extends Task {
 
     @Override
     protected void onStop(Task interruptTask) {
-        if (currentSubTask != null) {
-            currentSubTask.stop(interruptTask);
+        if (stopped()) {
+            if (currentSubTask != null) {
+                currentSubTask.stop(interruptTask);
+            }
+            Minecraft mc = Minecraft.getInstance();
+            restoreOriginalSettings(mc);
         }
-        Minecraft mc = Minecraft.getInstance();
-        restoreOriginalSettings(mc);
     }
 
     private int countItemInInventory(Minecraft mc, String... keywords) {

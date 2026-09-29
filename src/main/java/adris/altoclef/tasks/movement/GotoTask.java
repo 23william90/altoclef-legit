@@ -4,10 +4,15 @@ import adris.altoclef.tasksystem.Task;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 
+import baritone.api.pathing.goals.Goal;
+import net.minecraft.client.Minecraft;
+
 public class GotoTask extends Task {
 
     private final String destination;
     private boolean finished = false;
+    private long lastResumeTime = 0;
+    private int failCount = 0;
 
     public GotoTask(String destination) {
         this.destination = destination;
@@ -16,11 +21,13 @@ public class GotoTask extends Task {
     @Override
     protected void onStart() {
         finished = false;
+        failCount = 0;
         setDebugState("Navigating to: " + destination);
         try {
             IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (primary != null) {
                 primary.getCommandManager().execute("goto " + destination);
+                lastResumeTime = System.currentTimeMillis();
             }
         } catch (Throwable t) {
             t.printStackTrace();
@@ -33,8 +40,27 @@ public class GotoTask extends Task {
         try {
             IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (primary != null) {
-                if (!primary.getPathingBehavior().isPathing() && !primary.getCustomGoalProcess().isActive()) {
+                Minecraft mc = Minecraft.getInstance();
+                Goal goal = primary.getCustomGoalProcess().getGoal();
+                if (goal != null && mc.player != null && goal.isInGoal(mc.player.getBlockX(), mc.player.getBlockY(), mc.player.getBlockZ())) {
                     finished = true;
+                    return null;
+                }
+
+                if (!primary.getPathingBehavior().isPathing() && !primary.getCustomGoalProcess().isActive()) {
+                    if (goal != null && mc.player != null && goal.isInGoal(mc.player.getBlockX(), mc.player.getBlockY(), mc.player.getBlockZ())) {
+                        finished = true;
+                    } else if (System.currentTimeMillis() - lastResumeTime > 1500) {
+                        lastResumeTime = System.currentTimeMillis();
+                        failCount++;
+                        if (failCount > 6) {
+                            finished = true;
+                        } else {
+                            primary.getCommandManager().execute("goto " + destination);
+                        }
+                    }
+                } else {
+                    failCount = 0;
                 }
             }
         } catch (Throwable ignored) {

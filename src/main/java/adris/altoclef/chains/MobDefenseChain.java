@@ -69,10 +69,6 @@ public class MobDefenseChain extends SingleTaskChain {
             if (creeper.getSwellDir() > 0 || creeper.isIgnited()) {
                 return 92.0f;
             }
-            if (distSq < 49.0) { // < 7 blocks
-                return 75.0f;
-            }
-            return 68.0f;
         }
 
         // Emergency 2: Incoming projectile heading straight for us
@@ -96,6 +92,38 @@ public class MobDefenseChain extends SingleTaskChain {
         LivingEntity hurtBy = player.getLastHurtByMob();
         if (hurtBy != null && hurtBy == currentThreat) {
             return 70.0f;
+        }
+
+        // Check if user has an active task or bot is navigating/traveling
+        AltoClef mod = AltoClef.getInstance();
+        boolean hasUserTask = (mod != null && mod.getUserTaskChain() != null && mod.getUserTaskChain().isActive());
+        IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+        boolean isTraveling = (baritone != null && (baritone.getPathingBehavior().isPathing() || baritone.getCustomGoalProcess().isActive()));
+
+        // If the bot needs to move far or has an active user task:
+        // Prioritize running away / sprinting past mobs that won't bother it over stopping to fight them!
+        if (hasUserTask || isTraveling) {
+            // Only interrupt if mob is point-blank in our face (<= 3.5m)
+            if (distSq <= 12.25) {
+                if (currentThreat instanceof Creeper) {
+                    return 75.0f;
+                }
+                return 66.0f;
+            }
+
+            // Distant mob (> 3.5m) while traveling: ignore and sprint past!
+            stopShielding();
+            stopApproaching();
+            stopFleeing();
+            return Float.NEGATIVE_INFINITY;
+        }
+
+        // Idle / No User Task defense thresholds:
+        if (currentThreat instanceof Creeper) {
+            if (distSq < 49.0) { // < 7 blocks
+                return 75.0f;
+            }
+            return 68.0f;
         }
 
         // Close melee threat (< 4 blocks)
@@ -343,9 +371,7 @@ public class MobDefenseChain extends SingleTaskChain {
                 baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
                 baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
                 baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, false);
-                if (baritone.getCustomGoalProcess().isActive()) {
-                    baritone.getCustomGoalProcess().path();
-                }
+                baritone.getPathingBehavior().cancelEverything();
             }
         } catch (Throwable ignored) {
         }
@@ -372,9 +398,7 @@ public class MobDefenseChain extends SingleTaskChain {
                 baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
                 baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
                 baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, false);
-                if (baritone.getCustomGoalProcess().isActive()) {
-                    baritone.getCustomGoalProcess().path();
-                }
+                baritone.getPathingBehavior().cancelEverything();
             }
         } catch (Throwable ignored) {
         }

@@ -105,8 +105,6 @@ public abstract class Task {
         if (sub != null && !sub.stopped()) {
             sub.interrupt(interruptTask);
         }
-
-        first = true;
     }
 
     protected void setDebugState(String state) {

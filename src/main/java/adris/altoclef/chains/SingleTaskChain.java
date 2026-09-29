@@ -24,9 +24,6 @@ public abstract class SingleTaskChain extends TaskChain {
 
         if (interrupted) {
             interrupted = false;
-            if (mainTask != null) {
-                mainTask.reset();
-            }
         }
 
         if (mainTask != null) {
