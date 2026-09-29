@@ -1,64 +1,113 @@
 package adris.altoclef.tasks.entity;
 
 import adris.altoclef.AltoClef;
-import adris.altoclef.tasks.movement.GetToEntityTask;
-import adris.altoclef.tasks.movement.PickupDroppedItemTask;
-import adris.altoclef.tasks.movement.TimeoutWanderTask;
-import adris.altoclef.tasks.resources.KillAndLootTask;
 import adris.altoclef.tasksystem.Task;
-import adris.altoclef.util.ItemTarget;
-import adris.altoclef.util.helpers.ItemHelper;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.ExperienceOrbEntity;
-import net.minecraft.entity.mob.HostileEntity;
-import net.minecraft.entity.mob.SlimeEntity;
-
-import java.util.Optional;
+import baritone.api.BaritoneAPI;
+import baritone.api.IBaritone;
+import baritone.api.pathing.goals.GoalNear;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.monster.cubemob.Slime;
+import net.minecraft.world.item.component.SwingAnimation;
 
 public class HeroTask extends Task {
+
+    private final AltoClef mod;
+    private long lastAttackTime = 0;
+
+    public HeroTask(AltoClef mod) {
+        this.mod = mod;
+    }
+
     @Override
     protected void onStart() {
-
+        setDebugState("Initializing Hero Mode (Hunting all hostile mobs)...");
     }
 
     @Override
     protected Task onTick() {
-        AltoClef mod = AltoClef.getInstance();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null) return null;
 
-        if (mod.getFoodChain().needsToEat()) {
-            setDebugState("Eat first.");
-            return null;
-        }
-        Optional<Entity> experienceOrb = mod.getEntityTracker().getClosestEntity(ExperienceOrbEntity.class);
-        if (experienceOrb.isPresent()) {
-            setDebugState("Getting experience.");
-            return new GetToEntityTask(experienceOrb.get());
-        }
-        assert MinecraftClient.getInstance().world != null;
-        Iterable<Entity> hostiles = MinecraftClient.getInstance().world.getEntities();
-        if (hostiles != null) {
-            for (Entity hostile : hostiles) {
-                if (hostile instanceof HostileEntity || hostile instanceof SlimeEntity) {
-                    Optional<Entity> closestHostile = mod.getEntityTracker().getClosestEntity(hostile.getClass());
-                    if (closestHostile.isPresent()) {
-                        setDebugState("Killing hostiles or picking hostile drops.");
-                        return new KillAndLootTask(hostile.getClass(), new ItemTarget(ItemHelper.HOSTILE_MOB_DROPS));
-                    }
+        // 1. Collect nearby experience orbs
+        ExperienceOrb nearestOrb = null;
+        double nearestOrbDist = Double.MAX_VALUE;
+        for (net.minecraft.world.entity.Entity e : mc.level.entitiesForRendering()) {
+            if (e instanceof ExperienceOrb orb && orb.isAlive()) {
+                double dist = mc.player.distanceTo(orb);
+                if (dist < nearestOrbDist) {
+                    nearestOrbDist = dist;
+                    nearestOrb = orb;
                 }
             }
         }
-        if (mod.getEntityTracker().itemDropped(ItemHelper.HOSTILE_MOB_DROPS)) {
-            setDebugState("Picking hostile drops.");
-            return new PickupDroppedItemTask(new ItemTarget(ItemHelper.HOSTILE_MOB_DROPS), true);
+        if (nearestOrb != null && nearestOrbDist < 8.0) {
+            setDebugState("Collecting nearby XP orb...");
+            IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (primary != null && !primary.getPathingBehavior().isPathing()) {
+                primary.getCustomGoalProcess().setGoalAndPath(new GoalNear(nearestOrb.blockPosition(), 1));
+            }
+            return null;
         }
-        setDebugState("Searching for hostile mobs.");
-        return new TimeoutWanderTask();
+
+        // 2. Find closest hostile mob
+        net.minecraft.world.entity.LivingEntity targetMob = null;
+        double nearestMobDist = Double.MAX_VALUE;
+        for (net.minecraft.world.entity.Entity e : mc.level.entitiesForRendering()) {
+            if ((e instanceof Monster || e instanceof Slime) && e.isAlive()) {
+                double dist = mc.player.distanceTo(e);
+                if (dist < nearestMobDist && dist < 48.0) {
+                    nearestMobDist = dist;
+                    targetMob = (net.minecraft.world.entity.LivingEntity) e;
+                }
+            }
+        }
+
+        if (targetMob != null) {
+            setDebugState("Hunting: " + targetMob.getType().getDescription().getString() + " (" + String.format("%.1f", nearestMobDist) + "m)");
+
+            // Move towards mob
+            IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (primary != null && (!primary.getPathingBehavior().isPathing() || nearestMobDist > 3.5)) {
+                primary.getCustomGoalProcess().setGoalAndPath(new GoalNear(targetMob.blockPosition(), 2));
+            }
+
+            // Attack if in melee range
+            if (nearestMobDist <= 3.8) {
+                var mobEye = targetMob.getEyePosition();
+                var playerEye = mc.player.getEyePosition();
+                double dx = mobEye.x - playerEye.x;
+                double dy = mobEye.y - playerEye.y;
+                double dz = mobEye.z - playerEye.z;
+                double distXZ = Math.sqrt(dx * dx + dz * dz);
+                float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+                float pitch = (float) Math.toDegrees(Math.atan2(-dy, distXZ));
+                mc.player.setYRot(yaw);
+                mc.player.setXRot(pitch);
+
+                if (mc.player.getAttackStrengthScale(0.0f) >= 0.9f && System.currentTimeMillis() - lastAttackTime > 500) {
+                    if (mc.gameMode != null) {
+                        mc.gameMode.attack(mc.player, targetMob);
+                        mc.player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
+                        lastAttackTime = System.currentTimeMillis();
+                    }
+                }
+            }
+            return null;
+        }
+
+        setDebugState("Searching for hostile mobs in area...");
+        return null;
     }
 
     @Override
     protected void onStop(Task interruptTask) {
-
+        IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
+        if (primary != null) {
+            primary.getCustomGoalProcess().path();
+        }
     }
 
     @Override
@@ -68,6 +117,6 @@ public class HeroTask extends Task {
 
     @Override
     protected String toDebugString() {
-        return "Killing all hostile mobs.";
+        return "Hero (Kill All Hostiles)";
     }
 }

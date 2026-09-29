@@ -125,22 +125,22 @@ public class BeatMinecraftTask extends Task {
         return switch (phase) {
             case GATHER_WOOD -> new MineBlockTask(
                     mod, "wood",
-                    "oak_log,birch_log,spruce_log,jungle_log,acacia_log,dark_oak_log,mangrove_log,cherry_log,pale_oak_log",
+                    "oak_log birch_log spruce_log jungle_log acacia_log dark_oak_log mangrove_log cherry_log pale_oak_log",
                     16
             );
             case MINE_STONE -> new MineBlockTask(
                     mod, "stone",
-                    "cobblestone,stone,deepslate,cobbled_deepslate",
+                    "cobblestone stone deepslate cobbled_deepslate",
                     24
             );
             case MINE_IRON -> new MineBlockTask(
                     mod, "iron ore",
-                    "iron_ore,deepslate_iron_ore,raw_iron_block",
+                    "iron_ore deepslate_iron_ore raw_iron_block",
                     16
             );
             case MINE_DIAMONDS -> new MineBlockTask(
                     mod, "diamond ore",
-                    "diamond_ore,deepslate_diamond_ore",
+                    "diamond_ore deepslate_diamond_ore",
                     5
             );
             case ENTER_NETHER -> new MineBlockTask(
@@ -150,23 +150,23 @@ public class BeatMinecraftTask extends Task {
             );
             case GATHER_BLAZE_RODS -> new MineBlockTask(
                     mod, "blaze rod / spawner",
-                    "spawner,nether_bricks",
+                    "spawner nether_bricks",
                     7
             );
             case GATHER_ENDER_PEARLS -> new MineBlockTask(
                     mod, "gold ore (for bartering)",
-                    "nether_gold_ore,gold_block",
+                    "nether_gold_ore gold_block",
                     32
             );
             case LOCATE_STRONGHOLD -> new MineBlockTask(
                     mod, "stronghold stone",
-                    "stone_bricks,cracked_stone_bricks,mossy_stone_bricks",
+                    "end_portal_frame stone_bricks cracked_stone_bricks mossy_stone_bricks",
                     1
             );
             case WAIT_FOR_END_CHUNKS -> null;
             case SLAY_DRAGON -> new MineBlockTask(
                     mod, "end stone / pillars",
-                    "end_stone,obsidian",
+                    "end_stone obsidian bedrock",
                     64
             );
         };

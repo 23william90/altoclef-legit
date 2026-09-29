@@ -13,6 +13,8 @@ public class AltoClefCommands {
                 new HelpCommand(),
                 new LegitMovementCommand(),
                 new GamerCommand(),
+                new MarvionCommand(),
+                new HeroCommand(),
                 new GetCommand(),
                 new GotoCommand(),
                 new StopCommand(),
