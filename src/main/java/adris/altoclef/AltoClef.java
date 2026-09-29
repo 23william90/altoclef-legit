@@ -18,10 +18,14 @@ import adris.altoclef.ui.CommandStatusOverlay;
 import adris.altoclef.ui.MessagePriority;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
+import adris.altoclef.control.InventoryManager;
 import net.fabricmc.api.ModInitializer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.world.level.block.Blocks;
+import java.util.ArrayList;
+import java.util.Arrays;
 
 public class AltoClef implements ModInitializer {
 
@@ -39,6 +43,7 @@ public class AltoClef implements ModInitializer {
     private boolean loaded = false;
     private boolean paused = false;
     private boolean tabCompleterRegistered = false;
+    private final InventoryManager inventoryManager = new InventoryManager();
 
     public static boolean inGame() {
         Minecraft mc = Minecraft.getInstance();
@@ -84,12 +89,37 @@ public class AltoClef implements ModInitializer {
         deathMenuChain = new DeathMenuChain(taskRunner);
         commandStatusOverlay = new CommandStatusOverlay();
 
-        // Configure Baritone rendering & lines for best visuals
+        // Configure Baritone rendering, lines, and pillaring/throwaway block settings
         try {
-            BaritoneAPI.getSettings().renderPath.value = true;
-            BaritoneAPI.getSettings().renderPathAsLine.value = true;
-            BaritoneAPI.getSettings().renderGoal.value = true;
-            BaritoneAPI.getSettings().renderSelectionBoxes.value = true;
+            baritone.api.Settings s = BaritoneAPI.getSettings();
+            s.renderPath.value = true;
+            s.renderPathAsLine.value = true;
+            s.renderGoal.value = true;
+            s.renderSelectionBoxes.value = true;
+
+            // Enable pillaring, bridging, jumping, and inventory movement for Baritone
+            s.allowPlace.value = true;
+            s.allowBreak.value = true;
+            s.allowSprint.value = true;
+            s.allowParkour.value = true;
+            s.allowParkourPlace.value = true;
+            s.allowParkourAscend.value = true;
+            s.allowInventory.value = true; // Enables moving throwaways from main inventory to hotbar!
+            s.blockPlacementPenalty.value = 1.0; // Low placement cost so Baritone will place dirt to climb!
+            s.jumpPenalty.value = 1.0;
+            s.exploreForBlocks.value = true;
+            s.mineScanDroppedItems.value = true;
+            s.acceptableThrowawayItems.value = new ArrayList<>(Arrays.asList(
+                    Blocks.DIRT.asItem(),
+                    Blocks.COBBLESTONE.asItem(),
+                    Blocks.COBBLED_DEEPSLATE.asItem(),
+                    Blocks.NETHERRACK.asItem(),
+                    Blocks.STONE.asItem(),
+                    Blocks.SANDSTONE.asItem(),
+                    Blocks.OAK_PLANKS.asItem(),
+                    Blocks.BIRCH_PLANKS.asItem(),
+                    Blocks.SPRUCE_PLANKS.asItem()
+            ));
         } catch (Throwable ignored) {
         }
 
@@ -138,9 +168,16 @@ public class AltoClef implements ModInitializer {
             taskRunner.tick();
         }
 
+        // Run automatic inventory management (armor, tools, hotbar throwaways, shields)
+        inventoryManager.tick(this);
+
         if (settings != null && settings.isLegitMovement() && inGame()) {
             tickLegitMovement();
         }
+    }
+
+    public InventoryManager getInventoryManager() {
+        return inventoryManager;
     }
 
     private void tickLegitMovement() {

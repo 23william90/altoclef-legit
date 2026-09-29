@@ -4,6 +4,7 @@ import adris.altoclef.AltoClef;
 import adris.altoclef.tasksystem.TaskRunner;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
+import baritone.api.pathing.goals.GoalNear;
 import baritone.api.utils.input.Input;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -22,6 +23,7 @@ public class MobDefenseChain extends SingleTaskChain {
 
     private Entity currentThreat = null;
     private boolean shielding = false;
+    private boolean approaching = false;
     private long lastAttackTime = 0;
 
     public MobDefenseChain(TaskRunner runner) {
@@ -66,6 +68,8 @@ public class MobDefenseChain extends SingleTaskChain {
         LocalPlayer player = mc.player;
         if (player == null || currentThreat == null || !currentThreat.isAlive()) {
             stopShielding();
+            stopApproaching();
+            currentThreat = null;
             return;
         }
 
@@ -88,7 +92,6 @@ public class MobDefenseChain extends SingleTaskChain {
     }
 
     private void handleCreeperDefense(Minecraft mc, LocalPlayer player, Creeper creeper, double distSq) {
-        // Look towards/away from creeper
         lookAt(player, creeper.position().add(0, creeper.getEyeHeight(), 0));
 
         // If swelling close by, raise shield to absorb explosion
@@ -128,11 +131,12 @@ public class MobDefenseChain extends SingleTaskChain {
     }
 
     private void handleMeleeCombat(Minecraft mc, LocalPlayer player, Entity target, double distSq) {
-        // If Skeleton is drawing bow nearby, raise shield
-        if (target instanceof AbstractSkeleton && distSq < 64.0 && distSq > 9.0) {
-            if (hasShield(player) && System.currentTimeMillis() - lastAttackTime > 500) {
+        // If Skeleton is drawing bow from range, raise shield briefly
+        if (target instanceof AbstractSkeleton && distSq < 100.0 && distSq > 16.0) {
+            if (hasShield(player) && System.currentTimeMillis() - lastAttackTime > 600) {
                 lookAt(player, target.position().add(0, target.getEyeHeight(), 0));
                 startShielding(player);
+                approachTarget(target);
                 return;
             }
         }
@@ -141,13 +145,46 @@ public class MobDefenseChain extends SingleTaskChain {
         equipBestWeapon(player);
         lookAt(player, target.position().add(0, target.getEyeHeight() * 0.75, 0));
 
+        // Actively pursue and close the distance towards the enemy!
+        if (distSq > 9.0) {
+            approachTarget(target);
+        } else {
+            stopApproaching();
+        }
+
         if (distSq <= 16.0) { // in reach ~4 blocks
             tryAttack(mc, player, target);
         }
     }
 
+    private void approachTarget(Entity target) {
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+                approaching = true;
+                if (!baritone.getCustomGoalProcess().isActive() || !baritone.getPathingBehavior().isPathing()) {
+                    baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(target.blockPosition(), 1));
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void stopApproaching() {
+        if (!approaching) return;
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null && baritone.getCustomGoalProcess().isActive()) {
+                baritone.getCustomGoalProcess().path();
+            }
+            approaching = false;
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void tryAttack(Minecraft mc, LocalPlayer player, Entity target) {
-        if (player.getAttackStrengthScale(0.5f) >= 0.9f) {
+        if (player.getAttackStrengthScale(0.0f) >= 0.85f) {
+            lookAt(player, target.position().add(0, target.getEyeHeight() * 0.75, 0));
             mc.gameMode.attack(player, target);
             player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
             lastAttackTime = System.currentTimeMillis();
@@ -181,6 +218,7 @@ public class MobDefenseChain extends SingleTaskChain {
 
     private Entity findPriorityThreat(Minecraft mc, LocalPlayer player) {
         if (mc.level == null) return null;
+
         Entity bestThreat = null;
         double bestDistSq = Double.MAX_VALUE;
 
@@ -223,9 +261,9 @@ public class MobDefenseChain extends SingleTaskChain {
                 continue;
             }
 
-            // 4. General hostile monster in melee range
+            // 4. General hostile monster (Zombies, Skeletons, Spiders, Slimes, etc.) within 10 blocks
             if (entity instanceof Monster monster) {
-                if (distSq < 25.0 && distSq < bestDistSq) {
+                if (distSq < 100.0 && distSq < bestDistSq) {
                     bestThreat = monster;
                     bestDistSq = distSq;
                 }
@@ -304,11 +342,13 @@ public class MobDefenseChain extends SingleTaskChain {
     @Override
     protected void onTaskFinish(AltoClef mod) {
         stopShielding();
+        stopApproaching();
     }
 
     @Override
     protected void onStop() {
         stopShielding();
+        stopApproaching();
     }
 
     @Override
