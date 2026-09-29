@@ -6,7 +6,9 @@
   "mixins": [],
   "client": [
     "ChatInputMixin",
-    "EntryMixin"
+    "EntryMixin",
+    "ClientTickMixin",
+    "ClientUIMixin"
   ],
   "injectors": {
     "defaultRequire": 1

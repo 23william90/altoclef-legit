@@ -5,8 +5,7 @@ import adris.altoclef.commandsystem.ArgParser;
 import adris.altoclef.commandsystem.Command;
 import adris.altoclef.commandsystem.args.StringArg;
 import adris.altoclef.commandsystem.exception.CommandException;
-import baritone.api.BaritoneAPI;
-import baritone.api.IBaritone;
+import adris.altoclef.tasks.movement.GotoTask;
 
 public class GotoCommand extends Command {
 
@@ -17,14 +16,6 @@ public class GotoCommand extends Command {
     @Override
     protected void call(AltoClef mod, ArgParser parser) throws CommandException {
         String target = parser.get(String.class);
-        mod.log("Traveling to: " + target);
-        try {
-            IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
-            if (primary != null) {
-                primary.getCommandManager().execute("goto " + target);
-            }
-        } catch (Throwable ignored) {
-        }
-        finish();
+        mod.runUserTask(new GotoTask(target), this::finish);
     }
 }

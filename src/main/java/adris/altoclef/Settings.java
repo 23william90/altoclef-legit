@@ -48,6 +48,22 @@ public class Settings {
         return false;
     }
 
+    public boolean shouldShowTimer() {
+        return true;
+    }
+
+    public boolean shouldRunIdleCommandWhenNotActive() {
+        return false;
+    }
+
+    public String getIdleCommand() {
+        return "";
+    }
+
+    public boolean failedToLoad() {
+        return false;
+    }
+
     public static void load(Consumer<Settings> callback) {
         Settings settings = new Settings();
         if (callback != null) {

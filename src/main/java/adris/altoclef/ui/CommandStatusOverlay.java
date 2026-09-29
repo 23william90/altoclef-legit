@@ -1,13 +1,11 @@
 package adris.altoclef.ui;
 
 import adris.altoclef.AltoClef;
-import adris.altoclef.multiversion.DrawContextWrapper;
 import adris.altoclef.tasksystem.Task;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 
-import java.awt.*;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -17,118 +15,115 @@ import java.util.List;
 
 public class CommandStatusOverlay {
 
-    private final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss.SSS").withZone(ZoneId.from(ZoneOffset.of("+00:00"))); // The date formatter
-    //For the ingame timer
+    private final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss.SSS").withZone(ZoneId.from(ZoneOffset.of("+00:00")));
     private long runningSince;
     private long lastTime = 0;
     private long pausedTime = -1;
     private boolean paused = false;
 
-    public void render(AltoClef mod, DrawContextWrapper context) {
+    public void render(AltoClef mod, GuiGraphicsExtractor extractor) {
+        if (mod == null || extractor == null) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc == null || mc.player == null || mc.font == null) return;
+
         List<Task> tasks = Collections.emptyList();
-        if (mod.getTaskRunner().getCurrentTaskChain() != null) {
+        if (mod.getTaskRunner() != null && mod.getTaskRunner().getCurrentTaskChain() != null) {
             tasks = mod.getTaskRunner().getCurrentTaskChain().getTasks();
         }
+
         if (paused && !mod.isPaused()) {
             runningSince = Instant.now().minusMillis(pausedTime).toEpochMilli();
             lastTime = Instant.now().toEpochMilli();
             paused = false;
         }
 
-        MatrixStack matrixStack = context.getMatrices();
-
-        matrixStack.push();
-
-        drawTaskChain(context,MinecraftClient.getInstance().textRenderer, 10, 10,
-                matrixStack, 10, tasks, mod);
-
-        matrixStack.pop();
-    }
-
-    private void drawTaskChain(DrawContextWrapper context, TextRenderer renderer, int x, int y, MatrixStack matrices, int maxLines, List<Task> tasks, AltoClef mod) {
+        Font font = mc.font;
+        int x = 6;
+        int y = 6;
+        int addX = 6;
+        int addY = font.lineHeight + 2;
         int whiteColor = 0xFFFFFFFF;
+        int grayColor = 0xFFAAAAAA;
+        int yellowColor = 0xFFFFFF55;
+        int greenColor = 0xFF55FF55;
 
-        matrices.scale(0.5f,0.5f,0.5f);
+        // Background box estimation
+        int boxWidth = 220;
+        int estimatedLines = 2 + (tasks.isEmpty() ? 1 : Math.min(tasks.size(), 8));
+        int boxHeight = estimatedLines * addY + 6;
+        extractor.fill(x - 3, y - 3, x + boxWidth, y + boxHeight, 0x90000000);
 
-        int fontHeight = renderer.fontHeight;
-        int addX = 4;
-        int addY = fontHeight + 2;
+        // Header: Timer / Mod tag
+        String timerStr;
+        if (mod.isPaused() && mod.getStoredTask() != null) {
+            if (!paused) {
+                paused = true;
+                pausedTime = Instant.now().minusMillis(runningSince).toEpochMilli();
+            }
+            timerStr = "<" + DATE_TIME_FORMATTER.format(Instant.ofEpochMilli(pausedTime)) + "> (Paused)";
+            extractor.text(font, timerStr, x, y, yellowColor, true);
+        } else if (mod.getTaskRunner() != null && mod.getTaskRunner().isActive()) {
+            lastTime = Instant.now().toEpochMilli();
+            timerStr = "<" + DATE_TIME_FORMATTER.format(Instant.now().minusMillis(runningSince)) + ">";
+            extractor.text(font, timerStr, x, y, greenColor, true);
+        } else {
+            timerStr = "[Alto Clef 26.3]";
+            extractor.text(font, timerStr, x, y, greenColor, true);
+        }
 
-        context.drawText(renderer,mod.getTaskRunner().statusReport, x, y, Color.LIGHT_GRAY.getRGB(), true);
+        y += addY;
+
+        // Status report
+        String status = (mod.getTaskRunner() != null) ? mod.getTaskRunner().statusReport : "(idle)";
+        extractor.text(font, status, x, y, grayColor, true);
         y += addY;
 
         if (tasks.isEmpty()) {
-            if (mod.isPaused() && mod.getStoredTask() != null) {
-                if (!paused) {
-                    paused = true;
-                    pausedTime = Instant.now().minusMillis(runningSince).toEpochMilli();
-                }
-                String realTime = DATE_TIME_FORMATTER.format(Instant.ofEpochMilli(pausedTime));
-                context.drawText(renderer, "<" + realTime + ">", x, y, whiteColor, true);
-                x += addX;
-                y += addY;
-
-                context.drawText(renderer, " (Paused)", x, y, Color.LIGHT_GRAY.getRGB(), true);
-                renderTask(mod.getStoredTask(), context, renderer, x+addX*2, y+addY);
-                return;
+            if (mod.getStoredTask() != null && mod.isPaused()) {
+                renderTask(mod.getStoredTask(), extractor, font, x + addX, y);
+            } else if (mod.getTaskRunner() != null && mod.getTaskRunner().isActive()) {
+                extractor.text(font, " (no task running) ", x + addX, y, whiteColor, true);
             }
-            if (mod.getTaskRunner().isActive()) {
-                context.drawText(renderer, " (no task running) ", x, y, whiteColor, true);
-            }
-            if (lastTime + 10000 < Instant.now().toEpochMilli() && mod.getModSettings().shouldShowTimer()) {//if it doesn't run any task in 10 secs
-                runningSince = Instant.now().toEpochMilli();//reset the timer
+            if (lastTime + 10000 < Instant.now().toEpochMilli()) {
+                runningSince = Instant.now().toEpochMilli();
             }
             return;
         }
 
-        if (mod.getModSettings().shouldShowTimer()) {
-            lastTime = Instant.now().toEpochMilli();
+        lastTime = Instant.now().toEpochMilli();
 
-            String realTime = DATE_TIME_FORMATTER.format(Instant.now().minusMillis(runningSince));
-            context.drawText(renderer, "<" + realTime + ">", x, y, whiteColor, true);
-            x += addX;
-            y += addY;
-        }
-
+        int maxLines = 8;
         if (tasks.size() <= maxLines) {
             for (Task task : tasks) {
-                renderTask(task, context, renderer, x, y);
-
+                renderTask(task, extractor, font, x, y);
                 x += addX;
                 y += addY;
             }
-            return;
-        }
-
-        for (int i = 0; i < tasks.size(); ++i) {
-            if (i == 1) {
-                x += addX * 2;
-                context.drawText(renderer, "...", x, y, whiteColor, true);
-
-            } else if (i == 0 || i > tasks.size() - maxLines) {
-                renderTask(tasks.get(i),context ,renderer, x, y);
-            } else {
-                continue;
+        } else {
+            for (int i = 0; i < tasks.size(); ++i) {
+                if (i == 1) {
+                    x += addX * 2;
+                    extractor.text(font, "...", x, y, whiteColor, true);
+                } else if (i == 0 || i > tasks.size() - maxLines) {
+                    renderTask(tasks.get(i), extractor, font, x, y);
+                } else {
+                    continue;
+                }
+                x += addX;
+                y += addY;
             }
-
-            x += addX;
-            y += addY;
         }
-
-
     }
 
-
-    private void renderTask(Task task, DrawContextWrapper context, TextRenderer renderer, int x, int y) {
+    private void renderTask(Task task, GuiGraphicsExtractor extractor, Font font, int x, int y) {
+        if (task == null) return;
         String taskName = task.getClass().getSimpleName() + " ";
-        context.drawText(renderer, taskName, x, y, new Color(128, 128, 128).getRGB(), true);
-
-        context.drawText(renderer, task.toString(), x + renderer.getWidth(taskName), y, new Color(255, 255, 255).getRGB(), true);
-
+        extractor.text(font, taskName, x, y, 0xFF55FFFF, true);
+        extractor.text(font, task.toString(), x + font.width(taskName), y, 0xFFFFFFFF, true);
     }
 
     public void resetTimer() {
-        runningSince = Instant.now().toEpochMilli();//reset the timer
+        runningSince = Instant.now().toEpochMilli();
         lastTime = 0;
         paused = false;
         pausedTime = -1;

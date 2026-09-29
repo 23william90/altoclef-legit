@@ -1,13 +1,14 @@
 package adris.altoclef.eventbus.events;
 
-import adris.altoclef.multiversion.DrawContextWrapper;
+import net.minecraft.client.DeltaTracker;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 public class ClientRenderEvent {
-    public DrawContextWrapper context;
-    public float tickDelta;
+    public final GuiGraphicsExtractor extractor;
+    public final DeltaTracker deltaTracker;
 
-    public ClientRenderEvent(DrawContextWrapper context, float tickDelta) {
-        this.context = context;
-        this.tickDelta = tickDelta;
+    public ClientRenderEvent(GuiGraphicsExtractor extractor, DeltaTracker deltaTracker) {
+        this.extractor = extractor;
+        this.deltaTracker = deltaTracker;
     }
 }

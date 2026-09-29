@@ -4,17 +4,16 @@ import adris.altoclef.AltoClef;
 import adris.altoclef.commandsystem.ArgParser;
 import adris.altoclef.commandsystem.Command;
 
-import java.util.List;
-
 public class StopCommand extends Command {
 
     public StopCommand() {
-        super(List.of("stop", "cancel"), "Stop task runner (stops all automation)");
+        super("stop", "Stop all current bot tasks");
     }
 
     @Override
     protected void call(AltoClef mod, ArgParser parser) {
-        mod.stopTasks();
+        mod.cancelUserTask();
+        mod.log("Stopped all tasks.");
         finish();
     }
 }
