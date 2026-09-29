@@ -131,11 +131,20 @@ public class InventoryManager {
         keyword = keyword.toLowerCase();
         for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.USE_ROW_SLOT_END; i++) {
             ItemStack stack = menu.getSlot(i).getItem();
-            if (!stack.isEmpty() && stack.getItem().toString().toLowerCase().contains(keyword)) {
+            if (!stack.isEmpty() && getItemName(stack).contains(keyword)) {
                 return i;
             }
         }
         return -1;
+    }
+
+    public static String getItemName(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return "";
+        try {
+            return net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath().toLowerCase();
+        } catch (Throwable t) {
+            return stack.getItem().toString().toLowerCase();
+        }
     }
 
     public static int countItems(LocalPlayer player, String... keywords) {
@@ -144,7 +153,7 @@ public class InventoryManager {
         for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
             ItemStack stack = player.getInventory().getItem(i);
             if (!stack.isEmpty()) {
-                String name = stack.getItem().toString().toLowerCase();
+                String name = getItemName(stack);
                 for (String kw : keywords) {
                     if (name.contains(kw.toLowerCase())) {
                         count += stack.getCount();
@@ -172,7 +181,7 @@ public class InventoryManager {
         for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.INV_SLOT_END; i++) {
             ItemStack stack = menu.getSlot(i).getItem();
             if (stack.isEmpty()) continue;
-            String name = stack.getItem().toString().toLowerCase();
+            String name = getItemName(stack);
 
             if (missingHelmet && name.contains("helmet")) {
                 quickMove(mc, player, i);
@@ -200,7 +209,7 @@ public class InventoryManager {
         // Find shield in main inventory and shift-click into offhand
         for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.INV_SLOT_END; i++) {
             ItemStack stack = menu.getSlot(i).getItem();
-            if (!stack.isEmpty() && stack.getItem().toString().toLowerCase().contains("shield")) {
+            if (!stack.isEmpty() && getItemName(stack).contains("shield")) {
                 quickMove(mc, player, i);
                 return;
             }
@@ -261,7 +270,7 @@ public class InventoryManager {
 
         // Check hotbar slot 1 (index 37 in menu)
         ItemStack slot1 = menu.getSlot(InventoryMenu.USE_ROW_SLOT_START + 1).getItem();
-        if (!slot1.isEmpty() && slot1.getItem().toString().toLowerCase().contains("pickaxe")) return;
+        if (!slot1.isEmpty() && getItemName(slot1).contains("pickaxe")) return;
 
         // Find best pickaxe in inventory and swap to slot 1
         int bestSlot = -1;
@@ -269,7 +278,7 @@ public class InventoryManager {
         for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.USE_ROW_SLOT_END; i++) {
             ItemStack stack = menu.getSlot(i).getItem();
             if (stack.isEmpty()) continue;
-            String name = stack.getItem().toString().toLowerCase();
+            String name = getItemName(stack);
             if (name.contains("pickaxe")) {
                 float score = 1;
                 if (name.contains("netherite")) score = 10;
@@ -318,7 +327,7 @@ public class InventoryManager {
         // Check if hotbar already has a crafting table
         for (int i = InventoryMenu.USE_ROW_SLOT_START; i < InventoryMenu.USE_ROW_SLOT_END; i++) {
             ItemStack stack = menu.getSlot(i).getItem();
-            if (!stack.isEmpty() && stack.getItem().toString().toLowerCase().contains("crafting_table")) {
+            if (!stack.isEmpty() && getItemName(stack).contains("crafting_table")) {
                 return;
             }
         }
@@ -326,7 +335,7 @@ public class InventoryManager {
         // Find crafting table in main inventory and swap to hotbar slot 2
         for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.INV_SLOT_END; i++) {
             ItemStack stack = menu.getSlot(i).getItem();
-            if (!stack.isEmpty() && stack.getItem().toString().toLowerCase().contains("crafting_table")) {
+            if (!stack.isEmpty() && getItemName(stack).contains("crafting_table")) {
                 swapToHotbar(mc, player, i, 2);
                 return;
             }
@@ -354,7 +363,7 @@ public class InventoryManager {
     }
 
     private boolean isThrowaway(ItemStack stack) {
-        String name = stack.getItem().toString().toLowerCase();
+        String name = getItemName(stack);
         for (String target : THROWAWAY_NAMES) {
             if (name.contains(target)) return true;
         }
@@ -362,12 +371,12 @@ public class InventoryManager {
     }
 
     private boolean isWeapon(ItemStack stack) {
-        String name = stack.getItem().toString().toLowerCase();
+        String name = getItemName(stack);
         return name.contains("sword") || name.contains("axe");
     }
 
     private float getWeaponScore(ItemStack stack) {
-        String name = stack.getItem().toString().toLowerCase();
+        String name = getItemName(stack);
         if (name.contains("netherite_sword")) return 10;
         if (name.contains("diamond_sword")) return 9;
         if (name.contains("iron_sword")) return 7;
@@ -379,7 +388,7 @@ public class InventoryManager {
     }
 
     private boolean isEdible(ItemStack stack) {
-        String name = stack.getItem().toString().toLowerCase();
+        String name = getItemName(stack);
         if (name.contains("rotten_flesh") || name.contains("spider_eye") ||
                 name.contains("pufferfish") || name.contains("poisonous_potato")) {
             return false;

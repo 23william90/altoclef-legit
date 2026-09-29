@@ -2,10 +2,14 @@ package adris.altoclef.tasks.container;
 
 import adris.altoclef.control.InventoryManager;
 import adris.altoclef.tasksystem.Task;
+import baritone.api.BaritoneAPI;
+import baritone.api.IBaritone;
+import baritone.api.pathing.goals.GoalNear;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.inventory.AbstractFurnaceMenu;
 import net.minecraft.world.inventory.ContainerInput;
@@ -27,6 +31,11 @@ public class SmeltInFurnaceTask extends Task {
     private int stepTimer = 0;
     private BlockPos placedFurnacePos = null;
 
+    // Watchdogs
+    private int noSpotTicks = 0;
+    private int placedFurnaceWaitTicks = 0;
+    private int furnaceGuiTicks = 0;
+
     public SmeltInFurnaceTask(String ingredientKeyword, int targetOutputCount) {
         this.ingredientKeyword = ingredientKeyword.toLowerCase();
         this.targetOutputCount = targetOutputCount;
@@ -37,6 +46,9 @@ public class SmeltInFurnaceTask extends Task {
         finished = false;
         stepTimer = 0;
         placedFurnacePos = null;
+        noSpotTicks = 0;
+        placedFurnaceWaitTicks = 0;
+        furnaceGuiTicks = 0;
         setDebugState("Smelting " + targetOutputCount + "x " + ingredientKeyword + " in Furnace...");
     }
 
@@ -55,11 +67,16 @@ public class SmeltInFurnaceTask extends Task {
                 player.closeContainer();
             }
             finished = true;
+            cancelBaritonePathing();
             return null;
         }
 
         // 1. Furnace menu is open!
         if (player.containerMenu instanceof FurnaceMenu menu) {
+            cancelBaritonePathing();
+            noSpotTicks = 0;
+            placedFurnaceWaitTicks = 0;
+            furnaceGuiTicks++;
             int containerId = menu.containerId;
 
             // Take any finished output from slot 2 (RESULT_SLOT)
@@ -93,23 +110,47 @@ public class SmeltInFurnaceTask extends Task {
                 }
             }
 
+            // Watchdog: If stuck in furnace for > 60 ticks without items smelting, close container
+            if (furnaceGuiTicks > 60 && inStack.isEmpty() && resultStack.isEmpty()) {
+                player.closeContainer();
+                furnaceGuiTicks = 0;
+                stepTimer = 5;
+                return null;
+            }
+
             setDebugState("Smelting in furnace: " + InventoryManager.countItems(player, outputKeyword) + " / " + targetOutputCount);
             stepTimer = 10; // Check every half second
             return null;
         }
 
+        furnaceGuiTicks = 0;
+
         // 2. Furnace is not open: check nearby in world
         BlockPos nearbyFurnace = findNearbyFurnace(mc, player);
         if (nearbyFurnace != null) {
+            cancelBaritonePathing();
+            noSpotTicks = 0;
+            placedFurnaceWaitTicks++;
+
             setDebugState("Opening nearby Furnace at " + nearbyFurnace.toShortString());
             Vec3 hitVec = Vec3.atCenterOf(nearbyFurnace).add(0, 0.5, 0);
             lookAt(player, hitVec);
             BlockHitResult hit = new BlockHitResult(hitVec, Direction.UP, nearbyFurnace, false);
             mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
             player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
+
+            if (placedFurnaceWaitTicks > 12) {
+                IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                if (baritone != null && !baritone.getPathingBehavior().isPathing()) {
+                    baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(nearbyFurnace, 1));
+                }
+            }
+
             stepTimer = 4;
             return null;
         }
+
+        placedFurnaceWaitTicks = 0;
 
         // 3. Need to place a furnace
         int furnaceItemCount = InventoryManager.countItems(player, "furnace");
@@ -118,12 +159,48 @@ public class SmeltInFurnaceTask extends Task {
             return new CraftInTableTask("furnace");
         }
 
-        // 4. Place furnace
+        // 4. Place furnace or escape 1x1 hole / confined area
         BlockPos placePos = findPlacingSpot(mc, player);
         if (placePos == null) {
-            setDebugState("Looking for clear spot to place Furnace...");
+            noSpotTicks++;
+
+            if (noSpotTicks > 6) {
+                BlockPos playerPos = player.blockPosition();
+                int solidWalls = 0;
+                for (Direction dir : Direction.Plane.HORIZONTAL) {
+                    if (mc.level.getBlockState(playerPos.relative(dir)).isSolid()) {
+                        solidWalls++;
+                    }
+                }
+
+                if (solidWalls >= 3) {
+                    setDebugState("In 1x1 hole (" + solidWalls + "/4 walls solid). Escaping to clear space...");
+                    if (player.onGround() && mc.level.getBlockState(playerPos.above(2)).isAir()) {
+                        player.jumpFromGround();
+                    }
+                    Direction facing = player.getDirection();
+                    BlockPos wallInFront = playerPos.relative(facing);
+                    if (mc.level.getBlockState(wallInFront).isSolid()) {
+                        mc.gameMode.startDestroyBlock(wallInFront, Direction.UP);
+                    }
+                }
+
+                BlockPos openGround = findNearestOpenGround(mc, player, 16);
+                if (openGround != null) {
+                    IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                    if (baritone != null && !baritone.getPathingBehavior().isPathing()) {
+                        baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(openGround, 1));
+                        setDebugState("Navigating out of confined space to open ground at " + openGround.toShortString());
+                    }
+                }
+            } else {
+                setDebugState("Looking for clear spot to place Furnace...");
+            }
             return null;
         }
+
+        cancelBaritonePathing();
+        noSpotTicks = 0;
 
         int hotbarSlot = ensureHeldItem(mc, player, "furnace");
         if (hotbarSlot == -1) {
@@ -142,6 +219,54 @@ public class SmeltInFurnaceTask extends Task {
         setDebugState("Placed Furnace at " + placePos.toShortString() + ", interacting next tick...");
 
         return null;
+    }
+
+    private BlockPos findNearestOpenGround(Minecraft mc, LocalPlayer player, int radius) {
+        if (mc.level == null) return null;
+        BlockPos center = player.blockPosition();
+        BlockPos bestPos = null;
+        double bestDistSq = Double.MAX_VALUE;
+
+        for (int dy = -2; dy <= 4; dy++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    BlockPos p = center.offset(dx, dy, dz);
+                    BlockState ground = mc.level.getBlockState(p);
+                    if (!ground.isSolid() || ground.canBeReplaced()) continue;
+
+                    BlockState above1 = mc.level.getBlockState(p.above());
+                    BlockState above2 = mc.level.getBlockState(p.above(2));
+                    if (!above1.isAir() && !above1.canBeReplaced()) continue;
+                    if (!above2.isAir() && !above2.canBeReplaced()) continue;
+
+                    int clearNeighbors = 0;
+                    for (Direction dir : Direction.Plane.HORIZONTAL) {
+                        BlockState nState = mc.level.getBlockState(p.above().relative(dir));
+                        if (nState.isAir() || nState.canBeReplaced()) {
+                            clearNeighbors++;
+                        }
+                    }
+                    if (clearNeighbors < 2) continue;
+
+                    double d = player.getEyePosition().distanceToSqr(Vec3.atCenterOf(p.above()));
+                    if (d < bestDistSq) {
+                        bestDistSq = d;
+                        bestPos = p.above();
+                    }
+                }
+            }
+        }
+        return bestPos;
+    }
+
+    private void cancelBaritonePathing() {
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null && baritone.getPathingBehavior().isPathing()) {
+                baritone.getPathingBehavior().forceCancel();
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private BlockPos findNearbyFurnace(Minecraft mc, LocalPlayer player) {
@@ -228,14 +353,14 @@ public class SmeltInFurnaceTask extends Task {
 
         // 1. Already selected in hotbar?
         ItemStack mainHand = player.getMainHandItem();
-        if (!mainHand.isEmpty() && mainHand.getItem().toString().toLowerCase().contains(keyword)) {
+        if (!mainHand.isEmpty() && getItemName(mainHand).contains(keyword)) {
             return player.getInventory().getSelectedSlot();
         }
 
         // 2. In any hotbar slot (0..8)?
         for (int i = 0; i < 9; i++) {
             ItemStack stack = player.getInventory().getItem(i);
-            if (!stack.isEmpty() && stack.getItem().toString().toLowerCase().contains(keyword)) {
+            if (!stack.isEmpty() && getItemName(stack).contains(keyword)) {
                 player.getInventory().setSelectedSlot(i);
                 return i;
             }
@@ -252,7 +377,7 @@ public class SmeltInFurnaceTask extends Task {
 
         for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.INV_SLOT_END; i++) {
             ItemStack stack = player.inventoryMenu.getSlot(i).getItem();
-            if (!stack.isEmpty() && stack.getItem().toString().toLowerCase().contains(keyword)) {
+            if (!stack.isEmpty() && getItemName(stack).contains(keyword)) {
                 mc.gameMode.handleContainerInput(
                         InventoryMenu.CONTAINER_ID,
                         i,
@@ -277,12 +402,21 @@ public class SmeltInFurnaceTask extends Task {
         player.setXRot(pitch);
     }
 
+    public static String getItemName(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return "";
+        try {
+            return BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath().toLowerCase();
+        } catch (Throwable t) {
+            return stack.getItem().toString().toLowerCase();
+        }
+    }
+
     private int findSlotInFurnace(FurnaceMenu menu, String... keywords) {
         // Slots 3..38 are player inventory in FurnaceMenu
         for (int i = 3; i < menu.slots.size(); i++) {
             ItemStack stack = menu.getSlot(i).getItem();
             if (!stack.isEmpty()) {
-                String name = stack.getItem().toString().toLowerCase();
+                String name = getItemName(stack);
                 for (String kw : keywords) {
                     if (name.contains(kw.toLowerCase())) {
                         return i;
@@ -295,7 +429,7 @@ public class SmeltInFurnaceTask extends Task {
 
     @Override
     protected void onStop(Task interruptTask) {
-        // Keep placed furnace in world so smelting can continue or be collected later
+        cancelBaritonePathing();
     }
 
     @Override
