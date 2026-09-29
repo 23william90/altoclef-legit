@@ -81,6 +81,11 @@ public class UserTaskChain extends SingleTaskChain {
 
         currentOnFinish = onFinish;
 
+        if (mainTask != null) {
+            mainTask.stop(task);
+            mainTask = null;
+        }
+
         if (!runningIdleTask) {
             Debug.logMessage("User Task Set: " + task.toString());
         }

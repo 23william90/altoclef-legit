@@ -2,6 +2,7 @@ package adris.altoclef.tasks.container;
 
 import adris.altoclef.AltoClef;
 import adris.altoclef.control.InventoryManager;
+import adris.altoclef.tasks.construction.MineBlockTask;
 import adris.altoclef.tasksystem.Task;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
@@ -144,6 +145,43 @@ public class CraftInTableTask extends Task {
         // 2. Verify all ingredients exist in player inventory
         for (Map.Entry<String, Integer> req : recipe.requiredCounts.entrySet()) {
             if (InventoryManager.countItems(player, req.getKey()) < req.getValue()) {
+                // If missing ingredient is sticks, auto-craft them if we have wood/planks
+                if (req.getKey().equals("stick")) {
+                    int planks = InventoryManager.countItems(player, "plank");
+                    if (planks >= 2) {
+                        int plankSlot = findPlankSlotInInventory(player);
+                        if (plankSlot != -1) {
+                            setDebugState("Auto 2x2 crafting sticks...");
+                            AltoClef.getInstance().getInventoryManager().craft2x2Sticks(mc, player, plankSlot);
+                            stepTimer = 3;
+                            return null;
+                        }
+                    } else {
+                        int logs = InventoryManager.countItems(player, "log");
+                        if (logs > 0) {
+                            int logSlot = findLogSlotInInventory(player);
+                            if (logSlot != -1) {
+                                setDebugState("Auto 2x2 crafting planks for sticks...");
+                                AltoClef.getInstance().getInventoryManager().craft2x2Planks(mc, player, logSlot);
+                                stepTimer = 3;
+                                return null;
+                            }
+                        }
+                    }
+                }
+                // If missing ingredient is planks, auto-craft them from logs
+                else if (req.getKey().equals("plank")) {
+                    int logs = InventoryManager.countItems(player, "log");
+                    if (logs > 0) {
+                        int logSlot = findLogSlotInInventory(player);
+                        if (logSlot != -1) {
+                            setDebugState("Auto 2x2 crafting planks from logs...");
+                            AltoClef.getInstance().getInventoryManager().craft2x2Planks(mc, player, logSlot);
+                            stepTimer = 3;
+                            return null;
+                        }
+                    }
+                }
                 setDebugState("Missing ingredient: need " + req.getValue() + "x " + req.getKey());
                 return null;
             }
@@ -167,15 +205,61 @@ public class CraftInTableTask extends Task {
             noSpotTicks = 0;
             placedTableWaitTicks++;
 
-            setDebugState("Opening Crafting Table at " + existingTable.toShortString());
+            // If any non-air block is directly above the table obstructing it, break it!
+            BlockPos above = existingTable.above();
+            if (!mc.level.getBlockState(above).isAir() && !mc.level.getBlockState(above).canBeReplaced()) {
+                setDebugState("Clearing block obstructing Crafting Table: " + above.toShortString());
+                int pickSlot = MineBlockTask.getPickaxeHotbarSlot(player);
+                if (pickSlot != -1) {
+                    player.getInventory().setSelectedSlot(pickSlot);
+                }
+                mc.gameMode.startDestroyBlock(above, Direction.UP);
+                stepTimer = 4;
+                return null;
+            }
+
+            // Find an open face exposed to air/replaceable block
+            Direction hitFace = Direction.UP;
             Vec3 hitVec = Vec3.atCenterOf(existingTable).add(0, 0.5, 0);
+            if (!mc.level.getBlockState(above).isAir() && !mc.level.getBlockState(above).canBeReplaced()) {
+                for (Direction dir : Direction.Plane.HORIZONTAL) {
+                    BlockPos neighbor = existingTable.relative(dir);
+                    if (mc.level.getBlockState(neighbor).isAir() || mc.level.getBlockState(neighbor).canBeReplaced()) {
+                        hitFace = dir;
+                        hitVec = Vec3.atCenterOf(existingTable).add(dir.getStepX() * 0.5, 0, dir.getStepZ() * 0.5);
+                        break;
+                    }
+                }
+            }
+
+            setDebugState("Opening Crafting Table at " + existingTable.toShortString());
             lookAt(player, hitVec);
-            BlockHitResult hit = new BlockHitResult(hitVec, Direction.UP, existingTable, false);
+            if (player.isShiftKeyDown()) {
+                player.setShiftKeyDown(false);
+            }
+            BlockHitResult hit = new BlockHitResult(hitVec, hitFace, existingTable, false);
             mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
             player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
 
-            // If placed table isn't opening after multiple attempts, step closer
-            if (placedTableWaitTicks > 12) {
+            // Watchdog: If placed/existing table isn't opening after multiple attempts (obstructed, in a hole, or blocked):
+            if (placedTableWaitTicks > 14) {
+                setDebugState("Crafting Table obstructed/unresponsive. Mining table to relocate...");
+                int pickSlot = MineBlockTask.getPickaxeHotbarSlot(player);
+                if (pickSlot != -1) {
+                    player.getInventory().setSelectedSlot(pickSlot);
+                }
+                mc.gameMode.startDestroyBlock(existingTable, Direction.UP);
+                if (!mc.level.getBlockState(existingTable).is(Blocks.CRAFTING_TABLE)) {
+                    placedTablePos = null;
+                    placedTableWaitTicks = 0;
+                    noSpotTicks = 0;
+                }
+                stepTimer = 4;
+                return null;
+            }
+
+            // If placed table isn't opening after a few attempts, step closer
+            if (placedTableWaitTicks > 6) {
                 IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
                 if (baritone != null && !baritone.getPathingBehavior().isPathing()) {
                     baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(existingTable, 1));
@@ -315,28 +399,19 @@ public class CraftInTableTask extends Task {
             return;
         }
 
-        // 2. Check slot 0 (result slot): if populated, take it!
+        // Return carried cursor item if any
+        if (!menu.getCarried().isEmpty()) {
+            int emptySlot = findEmptyPlayerSlotInContainer(menu);
+            if (emptySlot != -1) {
+                mc.gameMode.handleContainerInput(containerId, emptySlot, 0, ContainerInput.PICKUP, player);
+            }
+        }
+
+        // 2. Check slot 0 (result slot): if populated, shift-click it to inventory!
         ItemStack resultStack = menu.getSlot(0).getItem();
         if (!resultStack.isEmpty()) {
-            // Quick move crafted item into inventory
             mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
-
-            // Pickup fallback if still in slot
-            if (!menu.getSlot(0).getItem().isEmpty()) {
-                mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.PICKUP, player);
-            }
-
-            if (!menu.getCarried().isEmpty()) {
-                int emptySlot = findEmptyPlayerSlotInContainer(menu);
-                if (emptySlot != -1) {
-                    mc.gameMode.handleContainerInput(containerId, emptySlot, 0, ContainerInput.PICKUP, player);
-                }
-            }
-
-            clearCraftingGrid(mc, player, menu, containerId);
-            player.closeContainer();
-            setDebugState("Took crafted " + itemTarget + " from table!");
-            finished = true;
+            stepTimer = 2; // Allow container click packet to settle
             return;
         }
 
@@ -383,44 +458,23 @@ public class CraftInTableTask extends Task {
             mc.gameMode.handleContainerInput(containerId, invSlot, 0, ContainerInput.PICKUP, player);
         }
 
-        // 4. If all grid slots are populated, click slot 0 unconditionally!
+        // 4. If all grid slots are populated, shift-click slot 0 once populated
         if (allSlotsPopulated) {
-            mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
-            mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.PICKUP, player);
-
-            if (!menu.getCarried().isEmpty()) {
-                int emptySlot = findEmptyPlayerSlotInContainer(menu);
-                if (emptySlot != -1) {
-                    mc.gameMode.handleContainerInput(containerId, emptySlot, 0, ContainerInput.PICKUP, player);
-                }
-            }
-
-            if (InventoryManager.countItems(player, itemTarget) >= targetCount) {
-                clearCraftingGrid(mc, player, menu, containerId);
-                player.closeContainer();
-                setDebugState("Crafted " + itemTarget + "! Closed Crafting Table.");
-                finished = true;
+            ItemStack out = menu.getSlot(0).getItem();
+            if (!out.isEmpty()) {
+                mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
+                stepTimer = 2;
                 return;
             }
         }
 
         // 5. Watchdog Plan A: Stuck for > 20 ticks (~1s) with items in table
         if (craftingGuiTicks > 20) {
-            setDebugState("Watchdog: Extracting slot 0 craft output...");
-            mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
-            mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.PICKUP, player);
-
-            if (!menu.getCarried().isEmpty()) {
-                int emptySlot = findEmptyPlayerSlotInContainer(menu);
-                if (emptySlot != -1) {
-                    mc.gameMode.handleContainerInput(containerId, emptySlot, 0, ContainerInput.PICKUP, player);
-                }
-            }
-
-            if (InventoryManager.countItems(player, itemTarget) >= targetCount) {
-                clearCraftingGrid(mc, player, menu, containerId);
-                player.closeContainer();
-                finished = true;
+            ItemStack out = menu.getSlot(0).getItem();
+            if (!out.isEmpty()) {
+                setDebugState("Watchdog: Extracting slot 0 craft output...");
+                mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
+                stepTimer = 2;
                 return;
             }
         }
@@ -581,6 +635,12 @@ public class CraftInTableTask extends Task {
 
                     BlockState targetState = mc.level.getBlockState(target);
                     if (!targetState.isAir() && !targetState.canBeReplaced()) {
+                        continue;
+                    }
+
+                    // Ensure space above target is clear so table is never obstructed
+                    BlockState aboveState = mc.level.getBlockState(target.above());
+                    if (!aboveState.isAir() && !aboveState.canBeReplaced()) {
                         continue;
                     }
 

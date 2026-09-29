@@ -46,13 +46,11 @@ public abstract class SingleTaskChain extends TaskChain {
     }
 
     public void setTask(Task task) {
-        if (mainTask == null || !mainTask.equals(task)) {
-            if (mainTask != null) {
-                mainTask.stop(task);
-            }
-            mainTask = task;
-            if (task != null) task.reset();
+        if (mainTask != null && mainTask != task) {
+            mainTask.stop(task);
         }
+        mainTask = task;
+        if (task != null) task.reset();
     }
 
 

@@ -1,6 +1,7 @@
 package adris.altoclef.tasks.container;
 
 import adris.altoclef.control.InventoryManager;
+import adris.altoclef.tasks.construction.MineBlockTask;
 import adris.altoclef.tasksystem.Task;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
@@ -132,14 +133,61 @@ public class SmeltInFurnaceTask extends Task {
             noSpotTicks = 0;
             placedFurnaceWaitTicks++;
 
-            setDebugState("Opening nearby Furnace at " + nearbyFurnace.toShortString());
+            // If any non-air block is directly above the furnace obstructing it, break it!
+            BlockPos above = nearbyFurnace.above();
+            if (!mc.level.getBlockState(above).isAir() && !mc.level.getBlockState(above).canBeReplaced()) {
+                setDebugState("Clearing block obstructing Furnace: " + above.toShortString());
+                int pickSlot = MineBlockTask.getPickaxeHotbarSlot(player);
+                if (pickSlot != -1) {
+                    player.getInventory().setSelectedSlot(pickSlot);
+                }
+                mc.gameMode.startDestroyBlock(above, Direction.UP);
+                stepTimer = 4;
+                return null;
+            }
+
+            // Find an open face exposed to air/replaceable block
+            Direction hitFace = Direction.UP;
             Vec3 hitVec = Vec3.atCenterOf(nearbyFurnace).add(0, 0.5, 0);
+            if (!mc.level.getBlockState(above).isAir() && !mc.level.getBlockState(above).canBeReplaced()) {
+                for (Direction dir : Direction.Plane.HORIZONTAL) {
+                    BlockPos neighbor = nearbyFurnace.relative(dir);
+                    if (mc.level.getBlockState(neighbor).isAir() || mc.level.getBlockState(neighbor).canBeReplaced()) {
+                        hitFace = dir;
+                        hitVec = Vec3.atCenterOf(nearbyFurnace).add(dir.getStepX() * 0.5, 0, dir.getStepZ() * 0.5);
+                        break;
+                    }
+                }
+            }
+
+            setDebugState("Opening nearby Furnace at " + nearbyFurnace.toShortString());
             lookAt(player, hitVec);
-            BlockHitResult hit = new BlockHitResult(hitVec, Direction.UP, nearbyFurnace, false);
+            if (player.isShiftKeyDown()) {
+                player.setShiftKeyDown(false);
+            }
+            BlockHitResult hit = new BlockHitResult(hitVec, hitFace, nearbyFurnace, false);
             mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
             player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
 
-            if (placedFurnaceWaitTicks > 12) {
+            // Watchdog: If placed/existing furnace isn't opening after multiple attempts (obstructed or blocked):
+            if (placedFurnaceWaitTicks > 14) {
+                setDebugState("Furnace obstructed/unresponsive. Mining furnace to relocate...");
+                int pickSlot = MineBlockTask.getPickaxeHotbarSlot(player);
+                if (pickSlot != -1) {
+                    player.getInventory().setSelectedSlot(pickSlot);
+                }
+                mc.gameMode.startDestroyBlock(nearbyFurnace, Direction.UP);
+                if (!mc.level.getBlockState(nearbyFurnace).is(Blocks.FURNACE)) {
+                    placedFurnacePos = null;
+                    placedFurnaceWaitTicks = 0;
+                    noSpotTicks = 0;
+                }
+                stepTimer = 4;
+                return null;
+            }
+
+            // If placed furnace isn't opening after a few attempts, step closer
+            if (placedFurnaceWaitTicks > 6) {
                 IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
                 if (baritone != null && !baritone.getPathingBehavior().isPathing()) {
                     baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(nearbyFurnace, 1));
@@ -353,6 +401,12 @@ public class SmeltInFurnaceTask extends Task {
 
                     BlockState targetState = mc.level.getBlockState(target);
                     if (!targetState.isAir() && !targetState.canBeReplaced()) {
+                        continue;
+                    }
+
+                    // Ensure space above target is clear so furnace is never obstructed
+                    BlockState aboveState = mc.level.getBlockState(target.above());
+                    if (!aboveState.isAir() && !aboveState.canBeReplaced()) {
                         continue;
                     }
 
