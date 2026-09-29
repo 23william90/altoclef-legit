@@ -1,380 +1,216 @@
 package adris.altoclef.tasks.container;
 
-import adris.altoclef.AltoClef;
-import adris.altoclef.BotBehaviour;
-import adris.altoclef.Debug;
-import adris.altoclef.TaskCatalogue;
-import adris.altoclef.tasks.ResourceTask;
-import adris.altoclef.tasks.resources.CollectFuelTask;
-import adris.altoclef.tasks.slot.MoveInaccessibleItemToInventoryTask;
-import adris.altoclef.tasks.slot.MoveItemToSlotFromInventoryTask;
+import adris.altoclef.control.InventoryManager;
 import adris.altoclef.tasksystem.Task;
-import adris.altoclef.util.ItemTarget;
-import adris.altoclef.util.MiningRequirement;
-import adris.altoclef.util.SmeltTarget;
-import adris.altoclef.util.helpers.ItemHelper;
-import adris.altoclef.util.helpers.StorageHelper;
-import adris.altoclef.util.slots.FurnaceSlot;
-import adris.altoclef.util.slots.Slot;
-import net.minecraft.block.Blocks;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.screen.FurnaceScreenHandler;
-import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.inventory.AbstractFurnaceMenu;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.inventory.FurnaceMenu;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
-import java.util.stream.Stream;
+public class SmeltInFurnaceTask extends Task {
 
+    private final String ingredientKeyword;
+    private final int targetOutputCount;
+    private boolean finished = false;
+    private int stepTimer = 0;
+    private BlockPos placedFurnacePos = null;
 
-// Ref
-// https://minecraft.gamepedia.com/Smelting
-
-/**
- * Smelt in a furnace, placing a furnace and collecting fuel as needed.
- */
-public class SmeltInFurnaceTask extends ResourceTask {
-    private final SmeltTarget[] _targets;
-
-    private final DoSmeltInFurnaceTask _doTask;
-
-    public SmeltInFurnaceTask(SmeltTarget[] targets) {
-        super(extractItemTargets(targets));
-        _targets = targets;
-        // TODO: Do them in order.
-        _doTask = new DoSmeltInFurnaceTask(targets[0]);
+    public SmeltInFurnaceTask(String ingredientKeyword, int targetOutputCount) {
+        this.ingredientKeyword = ingredientKeyword.toLowerCase();
+        this.targetOutputCount = targetOutputCount;
     }
 
-    public SmeltInFurnaceTask(SmeltTarget target) {
-        this(new SmeltTarget[]{target});
+    @Override
+    protected void onStart() {
+        finished = false;
+        stepTimer = 0;
+        placedFurnacePos = null;
+        setDebugState("Smelting " + targetOutputCount + "x " + ingredientKeyword + " in Furnace...");
     }
 
-    private static ItemTarget[] extractItemTargets(SmeltTarget[] recipeTargets) {
-        List<ItemTarget> result = new ArrayList<>(recipeTargets.length);
-        for (SmeltTarget target : recipeTargets) {
-            result.add(target.getItem());
+    @Override
+    protected Task onTick() {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
+        if (player == null || mc.level == null || mc.gameMode == null) return null;
+
+        if (stepTimer-- > 0) return null;
+
+        // Check if output is already satisfied (e.g. iron ingots)
+        String outputKeyword = ingredientKeyword.contains("iron") ? "iron_ingot" : "gold_ingot";
+        if (InventoryManager.countItems(player, outputKeyword) >= targetOutputCount) {
+            finished = true;
+            cleanUpPlacedFurnace(mc);
+            return null;
         }
-        return result.toArray(ItemTarget[]::new);
-    }
 
-    public void ignoreMaterials() {
-        _doTask.ignoreMaterials();
-    }
+        // 1. Furnace menu is open!
+        if (player.containerMenu instanceof FurnaceMenu menu) {
+            int containerId = menu.containerId;
 
-    @Override
-    protected boolean shouldAvoidPickingUp(AltoClef mod) {
-        return false;
-    }
-
-    @Override
-    protected void onResourceStart(AltoClef mod) {
-        mod.getBehaviour().push();
-        if (_targets.length != 1) {
-            Debug.logWarning("Tried smelting multiple targets, only one target is supported at a time!");
-        }
-    }
-
-    @Override
-    protected Task onResourceTick(AltoClef mod) {
-        Optional<BlockPos> furnacePos = mod.getBlockScanner().getNearestBlock(Blocks.FURNACE);
-        furnacePos.ifPresent(blockPos -> mod.getBehaviour().avoidBlockBreaking(blockPos));
-        return _doTask;
-    }
-
-    @Override
-    protected void onResourceStop(AltoClef mod, Task interruptTask) {
-        mod.getBehaviour().pop();
-        // Close furnace screen
-        ItemStack cursorStack = StorageHelper.getItemStackInCursorSlot();
-        if (!cursorStack.isEmpty()) {
-            Optional<Slot> moveTo = mod.getItemStorage().getSlotThatCanFitInPlayerInventory(cursorStack, false);
-            moveTo.ifPresent(slot -> mod.getSlotHandler().clickSlot(slot, 0, SlotActionType.PICKUP));
-            if (ItemHelper.canThrowAwayStack(mod, cursorStack)) {
-                mod.getSlotHandler().clickSlot(Slot.UNDEFINED, 0, SlotActionType.PICKUP);
+            // Take any finished output from slot 2 (RESULT_SLOT)
+            ItemStack resultStack = menu.getSlot(AbstractFurnaceMenu.RESULT_SLOT).getItem();
+            if (!resultStack.isEmpty()) {
+                mc.gameMode.handleContainerInput(containerId, AbstractFurnaceMenu.RESULT_SLOT, 0, ContainerInput.QUICK_MOVE, player);
             }
-            Optional<Slot> garbage = StorageHelper.getGarbageSlot(mod);
-            // Try throwing away cursor slot if it's garbage
-            garbage.ifPresent(slot -> mod.getSlotHandler().clickSlot(slot, 0, SlotActionType.PICKUP));
-            mod.getSlotHandler().clickSlot(Slot.UNDEFINED, 0, SlotActionType.PICKUP);
-        } else {
-            StorageHelper.closeScreen();
+
+            // Supply ingredient if slot 0 is empty
+            ItemStack inStack = menu.getSlot(AbstractFurnaceMenu.INGREDIENT_SLOT).getItem();
+            if (inStack.isEmpty()) {
+                int invIngSlot = findSlotInFurnace(menu, ingredientKeyword);
+                if (invIngSlot != -1) {
+                    mc.gameMode.handleContainerInput(containerId, invIngSlot, 0, ContainerInput.QUICK_MOVE, player);
+                } else if (resultStack.isEmpty()) {
+                    // No more ingredient and no more result, we're done!
+                    player.closeContainer();
+                    cleanUpPlacedFurnace(mc);
+                    finished = true;
+                    return null;
+                }
+            }
+
+            // Supply fuel if slot 1 is empty
+            ItemStack fuelStack = menu.getSlot(AbstractFurnaceMenu.FUEL_SLOT).getItem();
+            if (fuelStack.isEmpty()) {
+                int fuelSlot = findSlotInFurnace(menu, "coal", "charcoal", "plank", "log");
+                if (fuelSlot != -1) {
+                    mc.gameMode.handleContainerInput(containerId, fuelSlot, 0, ContainerInput.QUICK_MOVE, player);
+                }
+            }
+
+            setDebugState("Smelting in furnace: " + InventoryManager.countItems(player, outputKeyword) + " / " + targetOutputCount);
+            stepTimer = 10; // Check every half second
+            return null;
         }
+
+        // 2. Furnace is not open: check nearby
+        BlockPos nearbyFurnace = findNearbyFurnace(mc, player);
+        if (nearbyFurnace != null) {
+            setDebugState("Opening nearby Furnace at " + nearbyFurnace.toShortString());
+            BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(nearbyFurnace), Direction.UP, nearbyFurnace, false);
+            mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+            stepTimer = 5;
+            return null;
+        }
+
+        // 3. Need to place a furnace
+        int furnaceItemCount = InventoryManager.countItems(player, "furnace");
+        if (furnaceItemCount == 0) {
+            setDebugState("Need to craft a Furnace first!");
+            return new CraftInTableTask("furnace");
+        }
+
+        // Place furnace
+        BlockPos placePos = findPlacingSpot(mc, player);
+        if (placePos != null) {
+            int hotbarFurnaceSlot = findHotbarItem(player, "furnace");
+            if (hotbarFurnaceSlot != -1) {
+                player.getInventory().setSelectedSlot(hotbarFurnaceSlot);
+                BlockPos support = placePos.below();
+                BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(support).add(0, 0.5, 0), Direction.UP, support, false);
+                mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+                placedFurnacePos = placePos;
+                stepTimer = 3;
+            }
+        }
+
+        return null;
+    }
+
+    private void cleanUpPlacedFurnace(Minecraft mc) {
+        if (placedFurnacePos != null && mc.gameMode != null && mc.level != null) {
+            if (mc.level.getBlockState(placedFurnacePos).is(Blocks.FURNACE)) {
+                mc.gameMode.destroyBlock(placedFurnacePos);
+            }
+            placedFurnacePos = null;
+        }
+    }
+
+    private BlockPos findNearbyFurnace(Minecraft mc, LocalPlayer player) {
+        if (mc.level == null) return null;
+        BlockPos center = player.blockPosition();
+        for (int x = -3; x <= 3; x++) {
+            for (int y = -2; y <= 2; y++) {
+                for (int z = -3; z <= 3; z++) {
+                    BlockPos p = center.offset(x, y, z);
+                    if (mc.level.getBlockState(p).is(Blocks.FURNACE)) {
+                        return p;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private BlockPos findPlacingSpot(Minecraft mc, LocalPlayer player) {
+        if (mc.level == null) return null;
+        BlockPos center = player.blockPosition();
+        for (Direction dir : Direction.Plane.HORIZONTAL) {
+            BlockPos target = center.relative(dir);
+            BlockPos support = target.below();
+            if (mc.level.getBlockState(target).isAir() && mc.level.getBlockState(support).isSolid()) {
+                return target;
+            }
+        }
+        return null;
+    }
+
+    private int findHotbarItem(LocalPlayer player, String keyword) {
+        keyword = keyword.toLowerCase();
+        for (int i = 0; i < 9; i++) {
+            ItemStack s = player.getInventory().getItem(i);
+            if (!s.isEmpty() && s.getItem().toString().toLowerCase().contains(keyword)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int findSlotInFurnace(FurnaceMenu menu, String... keywords) {
+        // Slots 3..38 are player inventory in FurnaceMenu
+        for (int i = 3; i < menu.slots.size(); i++) {
+            ItemStack stack = menu.getSlot(i).getItem();
+            if (!stack.isEmpty()) {
+                String name = stack.getItem().toString().toLowerCase();
+                for (String kw : keywords) {
+                    if (name.contains(kw.toLowerCase())) {
+                        return i;
+                    }
+                }
+            }
+        }
+        return -1;
+    }
+
+    @Override
+    protected void onStop(Task interruptTask) {
+        Minecraft mc = Minecraft.getInstance();
+        cleanUpPlacedFurnace(mc);
     }
 
     @Override
     public boolean isFinished() {
-        return super.isFinished() || _doTask.isFinished();
+        return finished;
     }
 
     @Override
-    protected boolean isEqualResource(ResourceTask other) {
-        if (other instanceof SmeltInFurnaceTask task) {
-            return task._doTask.isEqual(_doTask);
+    protected boolean isEqual(Task other) {
+        if (other instanceof SmeltInFurnaceTask t) {
+            return t.ingredientKeyword.equals(this.ingredientKeyword) && t.targetOutputCount == this.targetOutputCount;
         }
         return false;
     }
 
     @Override
-    protected String toDebugStringName() {
-        return _doTask.toDebugString();
-    }
-
-    public SmeltTarget[] getTargets() {
-        return _targets;
-    }
-
-
-    static class DoSmeltInFurnaceTask extends DoStuffInContainerTask {
-
-        private final SmeltTarget target;
-        private final FurnaceCache furnaceCache = new FurnaceCache();
-        private final ItemTarget allMaterials;
-        private boolean ignoreMaterials;
-
-        public DoSmeltInFurnaceTask(SmeltTarget target) {
-            super(Blocks.FURNACE, new ItemTarget(Items.FURNACE));
-            this.target = target;
-            allMaterials = new ItemTarget(Stream.concat(Arrays.stream(this.target.getMaterial().getMatches()), Arrays.stream(this.target.getOptionalMaterials())).toArray(Item[]::new), this.target.getMaterial().getTargetCount());
-        }
-
-        public void ignoreMaterials() {
-            ignoreMaterials = true;
-        }
-
-        @Override
-        protected boolean isSubTaskEqual(DoStuffInContainerTask other) {
-            if (other instanceof DoSmeltInFurnaceTask task) {
-                return task.target.equals(target) && task.ignoreMaterials == ignoreMaterials;
-            }
-            return false;
-        }
-
-        @Override
-        protected boolean isContainerOpen(AltoClef mod) {
-            return (mod.getPlayer().currentScreenHandler instanceof FurnaceScreenHandler);
-        }
-
-        @Override
-        protected void onStart() {
-            super.onStart();
-            BotBehaviour botBehaviour = AltoClef.getInstance().getBehaviour();
-
-            botBehaviour.addProtectedItems(ItemHelper.PLANKS);
-            botBehaviour.addProtectedItems(Items.COAL);
-            botBehaviour.addProtectedItems(allMaterials.getMatches());
-            botBehaviour.addProtectedItems(target.getMaterial().getMatches());
-        }
-
-        @Override
-        protected Task onTick() {
-            AltoClef mod = AltoClef.getInstance();
-
-            tryUpdateOpenFurnace(mod);
-            // Include both regular + optional items
-            ItemTarget materialTarget = allMaterials;
-            ItemTarget outputTarget = target.getItem();
-            // Materials needed = (mat_target (- 0*mat_in_inventory) - out_in_inventory - mat_in_furnace - out_in_furnace)
-            // ^ 0 * mat_in_inventory because we always care aobut the TARGET materials, not how many LEFT there are.
-            int materialsNeeded = materialTarget.getTargetCount()
-                    /*- mod.getItemStorage().getItemCountInventoryOnly(materialTarget.getMatches())*/ // See comment above
-                    - mod.getItemStorage().getItemCountInventoryOnly(outputTarget.getMatches())
-                    - (materialTarget.matches(furnaceCache.materialSlot.getItem()) ? furnaceCache.materialSlot.getCount() : 0)
-                    - (outputTarget.matches(furnaceCache.outputSlot.getItem()) ? furnaceCache.outputSlot.getCount() : 0);
-            double totalFuelInFurnace = ItemHelper.getFuelAmount(furnaceCache.fuelSlot) + furnaceCache.burningFuelCount + furnaceCache.burnPercentage;
-            // Fuel needed = (mat_target - out_in_inventory - out_in_furnace - totalFuelInFurnace)
-            double fuelNeeded = ignoreMaterials
-                    ? Math.min(materialTarget.matches(furnaceCache.materialSlot.getItem()) ? furnaceCache.materialSlot.getCount() : 0, materialTarget.getTargetCount())
-                    : materialTarget.getTargetCount()
-                    /* - mod.getItemStorage().getItemCountInventoryOnly(materialTarget.getMatches()) */
-                    - mod.getItemStorage().getItemCountInventoryOnly(outputTarget.getMatches())
-                    - (outputTarget.matches(furnaceCache.outputSlot.getItem()) ? furnaceCache.outputSlot.getCount() : 0)
-                    - totalFuelInFurnace;
-
-            // We don't have enough materials...
-            if (mod.getItemStorage().getItemCount(materialTarget.getMatches()) < materialsNeeded) {
-                setDebugState("Getting Materials");
-                return getMaterialTask(target.getMaterial());
-            }
-
-            // We don't have enough fuel...
-            if (furnaceCache.burningFuelCount <= 0 && StorageHelper.calculateInventoryFuelCount(mod) < fuelNeeded) {
-                setDebugState("Getting Fuel");
-                return new CollectFuelTask(fuelNeeded + 1);
-            }
-
-            // Make sure our materials are accessible in our inventory
-            if (StorageHelper.isItemInaccessibleToContainer(mod, allMaterials)) {
-                return new MoveInaccessibleItemToInventoryTask(allMaterials);
-            }
-
-            // We have fuel and materials. Get to our container and smelt!
-            return super.onTick();
-        }
-
-        // Override this if our materials must be acquired in a special way.
-        // virtual
-        protected Task getMaterialTask(ItemTarget target) {
-            return TaskCatalogue.getItemTask(target);
-        }
-
-        @Override
-        protected Task containerSubTask(AltoClef mod) {
-            // We have appropriate materials/fuel.
-            /*
-             * - If output slot has something, receive it.
-             * - Calculate needed material input. If we don't have, put it in.
-             * - Calculate needed fuel input. If we don't have, put it in.
-             * - Wait lol
-             */
-            ItemStack output = StorageHelper.getItemStackInSlot(FurnaceSlot.OUTPUT_SLOT);
-            ItemStack material = StorageHelper.getItemStackInSlot(FurnaceSlot.INPUT_SLOT_MATERIALS);
-            ItemStack fuel = StorageHelper.getItemStackInSlot(FurnaceSlot.INPUT_SLOT_FUEL);
-
-            // Receive from output if present
-            double currentlyCachedWhileCooking = StorageHelper.getFurnaceFuel() + StorageHelper.getFurnaceCookPercent();
-            double needsWhileCooking = material.getCount() - currentlyCachedWhileCooking;
-            if (needsWhileCooking <= 0) {
-                if (!fuel.isEmpty()) {
-                    ItemStack cursor = StorageHelper.getItemStackInCursorSlot();
-                    if (!ItemHelper.canStackTogether(fuel, cursor)) {
-                        Optional<Slot> toFit = mod.getItemStorage().getSlotThatCanFitInPlayerInventory(cursor, false);
-                        if (toFit.isPresent()) {
-                            mod.getSlotHandler().clickSlot(toFit.get(), 0, SlotActionType.PICKUP);
-                            return null;
-                        } else {
-                            // Eh screw it
-                            if (ItemHelper.canThrowAwayStack(mod, cursor)) {
-                                mod.getSlotHandler().clickSlot(Slot.UNDEFINED, 0, SlotActionType.PICKUP);
-                                return null;
-                            }
-                        }
-                    }
-                    mod.getSlotHandler().clickSlot(FurnaceSlot.INPUT_SLOT_FUEL, 0, SlotActionType.PICKUP);
-                    return null;
-                }
-            }
-            if (!output.isEmpty()) {
-                setDebugState("Receiving Output");
-                // Ensure our cursor is empty/can receive our item
-                ItemStack cursor = StorageHelper.getItemStackInCursorSlot();
-                if (!ItemHelper.canStackTogether(output, cursor)) {
-                    Optional<Slot> toFit = mod.getItemStorage().getSlotThatCanFitInPlayerInventory(cursor, false);
-                    if (toFit.isPresent()) {
-                        mod.getSlotHandler().clickSlot(toFit.get(), 0, SlotActionType.PICKUP);
-                        return null;
-                    } else {
-                        // Eh screw it
-                        if (ItemHelper.canThrowAwayStack(mod, cursor)) {
-                            mod.getSlotHandler().clickSlot(Slot.UNDEFINED, 0, SlotActionType.PICKUP);
-                            return null;
-                        }
-                    }
-                }
-                // Pick up
-                mod.getSlotHandler().clickSlot(FurnaceSlot.OUTPUT_SLOT, 0, SlotActionType.PICKUP);
-                return null;
-                // return new MoveItemToSlotTask(new ItemTarget(output.getItem(), output.getCount()), toMoveTo.get(), mod -> FurnaceSlot.OUTPUT_SLOT);
-            }
-
-            // Fill in input if needed
-            // Materials needed in slot = (mat_target - out_in_inventory - out_in_furnace)
-            ItemTarget materialTarget = allMaterials;
-
-            int neededMaterialsInSlot = materialTarget.getTargetCount()
-                    - mod.getItemStorage().getItemCountInventoryOnly(target.getItem().getMatches())
-                    - (target.getItem().matches(output.getItem()) ? output.getCount() : 0);
-            // We don't have the right material or we need more
-            if (!allMaterials.matches(material.getItem()) || neededMaterialsInSlot > material.getCount()) {
-                int materialsAlreadyIn = (materialTarget.matches(material.getItem()) ? material.getCount() : 0);
-                setDebugState("Moving Materials");
-                return new MoveItemToSlotFromInventoryTask(new ItemTarget(materialTarget, neededMaterialsInSlot - materialsAlreadyIn), FurnaceSlot.INPUT_SLOT_MATERIALS);
-            }
-
-            /*
-            double currentFuel = _ignoreMaterials
-                    ? (Math.min(materialTarget.matches(_furnaceCache.materialSlot.getItem()) ? _furnaceCache.materialSlot.getCount() : 0, materialTarget.getTargetCount())
-                    : materialTarget.getTargetCount()
-                    - mod.getItemStorage().getItemCountInventoryOnly(materialTarget.getMatches())
-                    - mod.getItemStorage().getItemCountInventoryOnly(outputTarget.getMatches())
-                    - (outputTarget.matches(_furnaceCache.outputSlot.getItem()) ? _furnaceCache.outputSlot.getCount() : 0)
-                    - totalFuelInFurnace;
-             */
-            // Fill in fuel if needed
-            if (fuel.isEmpty() || ItemHelper.isFuel(fuel.getItem())) {
-                double currentlyCached = StorageHelper.getFurnaceFuel() + StorageHelper.getFurnaceCookPercent();
-                double needs = material.getCount() - currentlyCached;
-                if (needs > 0) {
-                    // Get best fuel to fill
-                    double closestDelta = Double.NEGATIVE_INFINITY;
-                    ItemStack bestStack = null;
-                    for (ItemStack stack : mod.getItemStorage().getItemStacksPlayerInventory(true)) {
-                        if (mod.getModSettings().isSupportedFuel(stack.getItem())) {
-                            double fuelAmount = ItemHelper.getFuelAmount(stack.getItem()) * stack.getCount();
-                            double delta = needs - fuelAmount;
-                            if (
-                                    (bestStack == null) ||
-                                            // If our best is above, prioritize lower values
-                                            (closestDelta > 0 && delta < closestDelta) ||
-                                            // If our best is below, prioritize higher below values
-                                            (delta < 0 && delta > closestDelta)
-                            ) {
-                                bestStack = stack;
-                                closestDelta = delta;
-                            }
-                        }
-                    }
-                    if (bestStack != null) {
-                        setDebugState("Filling fuel");
-                        return new MoveItemToSlotFromInventoryTask(new ItemTarget(bestStack.getItem(), bestStack.getCount()), FurnaceSlot.INPUT_SLOT_FUEL);
-                    }
-                }
-            }
-
-            setDebugState("Waiting...");
-            return null;
-        }
-
-        @Override
-        protected double getCostToMakeNew(AltoClef mod) {
-            if (furnaceCache.burnPercentage > 0 || furnaceCache.burningFuelCount > 0 ||
-                    !furnaceCache.fuelSlot.isEmpty() || !furnaceCache.materialSlot.isEmpty() ||
-                    !furnaceCache.outputSlot.isEmpty()) {
-                return 9999999.0;
-            }
-            if (mod.getItemStorage().getItemCount(Items.COBBLESTONE) > 8) {
-                double cost = 100.0 - 90.0 * (double) mod.getItemStorage().getItemCount(new Item[]{Items.COBBLESTONE}) / 8.0;
-                return Math.max(cost, 10.0);
-            }
-            return StorageHelper.miningRequirementMetInventory(MiningRequirement.WOOD) ? 50.0 : 100.0;
-        }
-
-        @Override
-        protected BlockPos overrideContainerPosition(AltoClef mod) {
-            // If we have a valid container position, KEEP it.
-            return getTargetContainerPosition();
-        }
-
-        private void tryUpdateOpenFurnace(AltoClef mod) {
-            if (isContainerOpen(mod)) {
-                // Update current furnace cache
-                furnaceCache.burnPercentage = StorageHelper.getFurnaceCookPercent();
-                furnaceCache.burningFuelCount = StorageHelper.getFurnaceFuel();
-                furnaceCache.fuelSlot = StorageHelper.getItemStackInSlot(FurnaceSlot.INPUT_SLOT_FUEL);
-                furnaceCache.materialSlot = StorageHelper.getItemStackInSlot(FurnaceSlot.INPUT_SLOT_MATERIALS);
-                furnaceCache.outputSlot = StorageHelper.getItemStackInSlot(FurnaceSlot.OUTPUT_SLOT);
-            }
-        }
-    }
-
-    static class FurnaceCache {
-        public ItemStack materialSlot = ItemStack.EMPTY;
-        public ItemStack fuelSlot = ItemStack.EMPTY;
-        public ItemStack outputSlot = ItemStack.EMPTY;
-        public double burningFuelCount = 0;
-        public double burnPercentage = 0;
+    protected String toDebugString() {
+        return "Smelting " + targetOutputCount + "x " + ingredientKeyword;
     }
 }

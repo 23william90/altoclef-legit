@@ -1,7 +1,6 @@
 package adris.altoclef.commands;
 
 import adris.altoclef.AltoClef;
-import adris.altoclef.Playground;
 import adris.altoclef.commandsystem.ArgParser;
 import adris.altoclef.commandsystem.Command;
 import adris.altoclef.commandsystem.exception.CommandException;
@@ -17,7 +16,8 @@ public class TestCommand extends Command {
 
     @Override
     protected void call(AltoClef mod, ArgParser parser) throws CommandException {
-        Playground.TEMP_TEST_FUNCTION(mod, parser.get(String.class));
+        String arg = parser.get(String.class);
+        mod.log("AltoClef 26.3 test command executed with arg: " + arg);
         finish();
     }
 }

@@ -1,145 +1,157 @@
 package adris.altoclef.chains;
 
 import adris.altoclef.AltoClef;
-import adris.altoclef.TaskCatalogue;
-import adris.altoclef.tasks.movement.MLGBucketTask;
-import adris.altoclef.tasksystem.ITaskOverridesGrounded;
 import adris.altoclef.tasksystem.TaskRunner;
-import adris.altoclef.util.helpers.LookHelper;
-import adris.altoclef.util.time.TimerGame;
-import baritone.api.utils.Rotation;
+import baritone.api.BaritoneAPI;
+import baritone.api.IBaritone;
 import baritone.api.utils.input.Input;
-import net.minecraft.block.Blocks;
-import net.minecraft.entity.effect.StatusEffects;
-import net.minecraft.item.Items;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.world.RaycastContext;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.world.item.ItemStack;
 
-import java.util.Optional;
+public class MLGBucketFallChain extends SingleTaskChain {
 
-@SuppressWarnings("UnnecessaryLocalVariable")
-public class MLGBucketFallChain extends SingleTaskChain implements ITaskOverridesGrounded {
-
-    private final TimerGame tryCollectWaterTimer = new TimerGame(4);
-    private final TimerGame pickupRepeatTimer = new TimerGame(0.25);
-    private MLGBucketTask lastMLG = null;
-    private boolean wasPickingUp = false;
-    private boolean doingChorusFruit = false;
+    private boolean placing = false;
+    private boolean placed = false;
+    private long placedTime = 0;
 
     public MLGBucketFallChain(TaskRunner runner) {
         super(runner);
     }
 
     @Override
-    protected void onTaskFinish(AltoClef mod) {
-        //_lastMLG = null;
-    }
-
-    @Override
     public float getPriority() {
         if (!AltoClef.inGame()) return Float.NEGATIVE_INFINITY;
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
+        if (player == null || !player.isAlive()) return Float.NEGATIVE_INFINITY;
 
-        AltoClef mod = AltoClef.getInstance();
+        if (player.isCreative() || player.isSpectator() || player.isFallFlying()) {
+            return Float.NEGATIVE_INFINITY;
+        }
 
-        if (isFalling(mod)) {
-            tryCollectWaterTimer.reset();
-            setTask(new MLGBucketTask());
-            lastMLG = (MLGBucketTask) mainTask;
-            return 100;
-        } else if (!tryCollectWaterTimer.elapsed()) { // Why -0.5? Cause it's slower than -0.7.
-            // We just placed water, try to collect it.
-            if (mod.getItemStorage().hasItem(Items.BUCKET) && !mod.getItemStorage().hasItem(Items.WATER_BUCKET)) {
-                if (lastMLG != null) {
-                    BlockPos placed = lastMLG.getWaterPlacedPos();
-                    boolean isPlacedWater;
-                    try {
-                        isPlacedWater = mod.getWorld().getBlockState(placed).getBlock() == Blocks.WATER;
-                    } catch (Exception e) {
-                        isPlacedWater = false;
-                    }
-                    //Debug.logInternal("PLACED: " + placed);
-                    if (placed != null && placed.isWithinDistance(mod.getPlayer().getPos(), 5.5) && isPlacedWater) {
-                        BlockPos toInteract = placed;
-                        // Allow looking at fluids
-                        mod.getBehaviour().push();
-                        mod.getBehaviour().setRayTracingFluidHandling(RaycastContext.FluidHandling.SOURCE_ONLY);
-                        Optional<Rotation> reach = LookHelper.getReach(toInteract, Direction.UP);
-                        if (reach.isPresent()) {
-                            mod.getClientBaritone().getLookBehavior().updateTarget(reach.get(), true);
-                            if (mod.getClientBaritone().getPlayerContext().isLookingAt(toInteract)) {
-                                if (mod.getSlotHandler().forceEquipItem(Items.BUCKET)) {
-                                    if (pickupRepeatTimer.elapsed()) {
-                                        // Pick up
-                                        pickupRepeatTimer.reset();
-                                        mod.getInputControls().tryPress(Input.CLICK_RIGHT);
-                                        wasPickingUp = true;
-                                    } else if (wasPickingUp) {
-                                        // Stop picking up, wait and try again.
-                                        wasPickingUp = false;
-                                    }
-                                }
-                            }
-                        } else {
-                            // Eh just try collecting water the regular way if all else fails.
-                            setTask(TaskCatalogue.getItemTask(Items.WATER_BUCKET, 1));
-                        }
-                        mod.getBehaviour().pop();
-                        return 60;
-                    }
-                }
+        // Falling fast from lethal height
+        if (player.fallDistance > 3.5f && player.getDeltaMovement().y < -0.65 && !player.isInWater() && !player.onGround()) {
+            if (findWaterBucketSlot(player) != -1) {
+                return 95.0f;
             }
         }
-        if (wasPickingUp) {
-            wasPickingUp = false;
-            lastMLG = null;
+
+        if (placing || placed) {
+            return 95.0f;
         }
-        if (mod.getPlayer().hasStatusEffect(StatusEffects.LEVITATION) &&
-                !mod.getPlayer().getItemCooldownManager().isCoolingDown(Items.CHORUS_FRUIT) &&
-                mod.getPlayer().getActiveStatusEffects().get(StatusEffects.LEVITATION).getDuration() <= 70 &&
-                mod.getItemStorage().hasItemInventoryOnly(Items.CHORUS_FRUIT) &&
-                !mod.getItemStorage().hasItemInventoryOnly(Items.WATER_BUCKET)) {
-            doingChorusFruit = true;
-            mod.getSlotHandler().forceEquipItem(Items.CHORUS_FRUIT);
-            mod.getInputControls().hold(Input.CLICK_RIGHT);
-            mod.getExtraBaritoneSettings().setInteractionPaused(true);
-        } else if (doingChorusFruit) {
-            doingChorusFruit = false;
-            mod.getInputControls().release(Input.CLICK_RIGHT);
-            mod.getExtraBaritoneSettings().setInteractionPaused(false);
-        }
-        lastMLG = null;
+
         return Float.NEGATIVE_INFINITY;
     }
 
     @Override
-    public String getName() {
-        return "MLG Water Bucket Fall Chain";
+    protected void onTick() {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
+        if (player == null) return;
+
+        int bucketSlot = findWaterBucketSlot(player);
+
+        if (!placed) {
+            if (bucketSlot != -1) {
+                player.getInventory().setSelectedSlot(bucketSlot);
+            }
+            player.setXRot(90.0f); // Look straight down
+
+            try {
+                IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                if (baritone != null) {
+                    baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, true);
+                    placing = true;
+                }
+            } catch (Throwable ignored) {
+            }
+
+            if (player.onGround() || player.isInWater()) {
+                placed = true;
+                placedTime = System.currentTimeMillis();
+                try {
+                    IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                    if (baritone != null) {
+                        baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, false);
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        } else {
+            // Collect water back up after landing
+            if (System.currentTimeMillis() - placedTime > 250) {
+                int emptyBucket = findEmptyBucketSlot(player);
+                if (emptyBucket != -1) {
+                    player.getInventory().setSelectedSlot(emptyBucket);
+                    player.setXRot(90.0f);
+                    try {
+                        IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                        if (baritone != null) {
+                            baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, true);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            if (System.currentTimeMillis() - placedTime > 600) {
+                cleanup();
+            }
+        }
+    }
+
+    private void cleanup() {
+        placing = false;
+        placed = false;
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+                baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, false);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private int findWaterBucketSlot(LocalPlayer player) {
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (!stack.isEmpty() && stack.getItem().toString().toLowerCase().contains("water_bucket")) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int findEmptyBucketSlot(LocalPlayer player) {
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (!stack.isEmpty()) {
+                String name = stack.getItem().toString().toLowerCase();
+                if (name.equals("bucket") || name.endsWith(":bucket")) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    @Override
+    protected void onTaskFinish(AltoClef mod) {
+        cleanup();
+    }
+
+    @Override
+    protected void onStop() {
+        cleanup();
     }
 
     @Override
     public boolean isActive() {
-        // We're always checking for mlg.
-        return true;
+        return placing || placed;
     }
 
-    public boolean doneMLG() {
-        return lastMLG == null;
-    }
-
-    public boolean isChorusFruiting() {
-        return doingChorusFruit;
-    }
-
-    public boolean isFalling(AltoClef mod) {
-        if (!mod.getModSettings().shouldAutoMLGBucket()) {
-            return false;
-        }
-        if (mod.getPlayer().isSwimming() || mod.getPlayer().isTouchingWater() || mod.getPlayer().isOnGround() || mod.getPlayer().isClimbing()) {
-            // We're grounded.
-            return false;
-        }
-        double ySpeed = mod.getPlayer().getVelocity().y;
-        return ySpeed < -0.7;
+    @Override
+    public String getName() {
+        return "MLG Water Bucket";
     }
 }

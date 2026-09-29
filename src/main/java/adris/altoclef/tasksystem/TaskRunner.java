@@ -42,7 +42,7 @@ public class TaskRunner {
         }
         cachedCurrentTaskChain = maxChain;
         if (maxChain != null) {
-            statusReport = "Chain: "+maxChain.getName() + ", priority: "+maxPriority;
+            statusReport = "Chain: " + maxChain.getName() + ", priority: " + maxPriority;
             maxChain.tick();
         } else {
             statusReport = " (no chain running) ";
@@ -54,16 +54,11 @@ public class TaskRunner {
     }
 
     public void enable() {
-        if (!active) {
-            mod.getBehaviour().push();
-            mod.getBehaviour().setPauseOnLostFocus(false);
-        }
         active = true;
     }
 
     public void disable() {
         if (active) {
-            mod.getBehaviour().pop();
             Debug.logMessage("Stopped");
         }
         for (TaskChain chain : chains) {
@@ -80,7 +75,6 @@ public class TaskRunner {
         return cachedCurrentTaskChain;
     }
 
-    // Kinda jank ngl
     public AltoClef getMod() {
         return mod;
     }

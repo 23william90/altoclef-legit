@@ -3,7 +3,6 @@ package adris.altoclef.commandsystem;
 import adris.altoclef.AltoClef;
 import adris.altoclef.Debug;
 import adris.altoclef.commandsystem.args.Arg;
-import adris.altoclef.commandsystem.args.GoToTargetArg;
 import adris.altoclef.commandsystem.args.ListArg;
 import adris.altoclef.commandsystem.exception.CommandException;
 import adris.altoclef.commandsystem.exception.RuntimeCommandException;
@@ -120,9 +119,7 @@ public abstract class Command {
 
                         // this means the error was not on the last element => suggestions are not valid
                         if (copy.hasNext() || (line.endsWith(" ") && !wasParsing.isBlank() && !(arg instanceof ListArg<?>))) {
-                             if (!(arg instanceof GoToTargetArg)) {
-                                return Stream.empty();
-                            }
+                            return Stream.empty();
                         }
                     }
                 }
