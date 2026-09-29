@@ -7,15 +7,19 @@ plugins {
 sourceCompatibility = JavaVersion.VERSION_21
 targetCompatibility = JavaVersion.VERSION_21
 
-archivesBaseName = "altoclef"
-version = "1.21.1-0.20-legit"
-group = "adris.altoclef"
+archivesBaseName = project.archives_base_name
+version = project.mod_version
+group = project.maven_group
 
 repositories {
     mavenCentral()
     maven {
         name = "Fabric"
         url = "https://maven.fabricmc.net/"
+    }
+    maven {
+        name = "JitPack"
+        url = "https://jitpack.io"
     }
     maven {
         name = "MiranCZRepo"
@@ -26,15 +30,18 @@ repositories {
         name = 'babbaj-repo'
         url = 'https://babbaj.github.io/maven/'
     }
+    flatDir {
+        dirs 'baritone-26.3/dist', 'baritone-26.3/fabric/build/libs', 'libs'
+    }
 }
 
 dependencies {
-    minecraft "com.mojang:minecraft:1.21.1"
-    mappings "net.fabricmc:yarn:1.21.1+build.3:v2"
-    modImplementation "net.fabricmc:fabric-loader:0.16.2"
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.minecraft_version}+build.1:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
     include(implementation(annotationProcessor("io.github.llamalad7:mixinextras-fabric:0.3.5")))
-    modImplementation "net.fabricmc.fabric-api:fabric-api:0.110.0+1.21.1"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.115.0+${project.minecraft_version}"
 
     implementation 'com.fasterxml.jackson.core:jackson-core:2.16.0'
     implementation 'com.fasterxml.jackson.core:jackson-annotations:2.16.0'
@@ -43,11 +50,13 @@ dependencies {
     shadow 'com.fasterxml.jackson.core:jackson-annotations:2.16.0'
     shadow 'com.fasterxml.jackson.core:jackson-databind:2.16.0'
 
-    implementation 'dev.babbaj:nether-pathfinder:1.5'
-    shadow 'dev.babbaj:nether-pathfinder:1.5'
+    implementation 'dev.babbaj:nether-pathfinder:1.6'
+    shadow 'dev.babbaj:nether-pathfinder:1.6'
 
-    modImplementation "cabaletta:baritone-unoptimized-fabric:1.21.1"
-    include "cabaletta:baritone-unoptimized-fabric:1.21.1"
+    // Baritone 26.3 dependency from our modernized fork:
+    // https://github.com/23william90/baritone-26.3
+    modImplementation "baritone:baritone-fabric:${project.minecraft_version}-SNAPSHOT"
+    include "baritone:baritone-fabric:${project.minecraft_version}-SNAPSHOT"
 }
 
 processResources {

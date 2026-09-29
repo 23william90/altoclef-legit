@@ -1,6 +1,25 @@
-# AltoClef Legit (Fabric 1.21.1)
+# AltoClef Legit (Fabric 26.3)
 
-A modernized Fabric fork of **AltoClef** (powered by **Baritone**) targeting **Minecraft 1.21.1**, featuring a brand-new **Legit Movement** engine. This mod forces the bot to move, turn, look, and interact with the world just like a legitimate human player.
+A modernized Fabric fork of **AltoClef** targeting **Minecraft 26.3**, powered by our modern fork of **[Baritone 26.3](https://github.com/23william90/baritone-26.3)** and featuring the **Legit Movement** engine. This mod forces the bot to move, turn, look, and interact with the world like a real human player.
+
+---
+
+## 🚀 Minecraft 26.3 Modernization & Research
+
+In porting AltoClef and Baritone to **Minecraft 26.3**, we analyzed the evolutionary path of modern Minecraft modding across the last major transitions:
+
+### 1. The Modern Baritone Ecosystem (26.3)
+- Baritone has moved from legacy Gradle Loom setups to **Unimined** with Mojang official mappings (`mojmap`).
+- We created a dedicated modern fork: **[23william90/baritone-26.3](https://github.com/23william90/baritone-26.3)**.
+- Integrated `AltoClefSettings` natively into Baritone's API (`baritone.altoclef.AltoClefSettings`) to allow custom block break/place avoiders, portal navigation, and tool safety predicates.
+- Added native `legitMovement` setting into Baritone's `Settings.java`.
+- Updated Nether Pathfinder to `v1.6` and Fabric Loader to `v0.19.5+`.
+
+### 2. Multi-Version Adaptation Layer in AltoClef
+In modern Minecraft, Mojang transitioned many classic systems:
+- **Components over NBT**: Food components (`FoodComponentWrapper`), item enchantments (`EnchantmentHelperVer`), and tool attributes have moved to static Data Components.
+- **Client & Interaction Abstraction**: `MinecraftClientVer` and `InteractionManagerVer` abstract the differences across modern client method signatures.
+- **Raytracing**: `RaycastContext` now uses explicit `ShapeType.OUTLINE` with `FluidHandling` to perform accurate occlusion detection.
 
 ---
 
@@ -56,29 +75,24 @@ When `legitMovement` is activated, the following Baritone settings are synchroni
 ## 🛠️ Building & Running
 
 ### Prerequisites
-- **Java 21 JDK** (Required for Minecraft 1.20.5+ / 1.21+)
-- **Fabric Loader** 0.16.2+
-- **Minecraft 1.21.1**
+- **Java 21 / 25 JDK**
+- **Fabric Loader** 0.19.5+
+- **Minecraft 26.3**
+
+### Associated Baritone Fork
+This branch connects with the modern Baritone 26.3 repository:
+👉 **[23william90/baritone-26.3](https://github.com/23william90/baritone-26.3)**
 
 ### Build the Mod JAR
 ```bash
 ./gradlew build -x test
-```
-The compiled, remapped, and shaded mod JAR will be located at:
-```
-build/libs/altoclef-1.21.1-0.20-legit.jar
-```
-
-### Run in Development
-```bash
-./gradlew runClient
 ```
 
 ---
 
 ## 📜 Credits & Acknowledgments
 - **AltoClef** originally created by **TacoTechnica** and developed by **James Green**, **Marvion Kirito**, and **MiranCZ**.
-- **Baritone** pathfinding library created by **cabaletta** and maintained by the Baritone and Meteor development teams.
+- **Baritone** pathfinding library created by **cabaletta** and maintained by the Meteor development team & Baritone contributors.
 - **FabricMC** modding toolchain and yarn mappings.
 
 Licensed under the [MIT License](LICENSE).
