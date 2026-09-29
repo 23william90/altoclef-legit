@@ -12,10 +12,21 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
+import net.minecraft.world.entity.boss.wither.WitherBoss;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.Enderman;
+import net.minecraft.world.entity.monster.Ghast;
 import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.monster.Shulker;
+import net.minecraft.world.entity.monster.Zoglin;
+import net.minecraft.world.entity.monster.cubemob.Slime;
+import net.minecraft.world.entity.monster.hoglin.Hoglin;
 import net.minecraft.world.entity.monster.skeleton.AbstractSkeleton;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.inventory.ContainerInput;
@@ -292,17 +303,27 @@ public class MobDefenseChain extends SingleTaskChain {
         stopShielding();
 
         // If hostile is point-blank (< 2.2 blocks) while retreating, defensive strike to push away
-        if (threat.distanceToSqr(player) <= 5.0 && player.getAttackStrengthScale(0.0f) >= 0.75f) {
-            equipBestWeapon(player);
-            smoothLookAt(player, threat.getEyePosition(), 50.0f);
-            mc.gameMode.attack(player, threat);
-            player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
+        if (threat instanceof LivingEntity living && isHostileMob(living) && living.isAlive() && !living.isRemoved()) {
+            if (threat.distanceToSqr(player) <= 5.0 && player.getAttackStrengthScale(0.0f) >= 0.75f) {
+                equipBestWeapon(player);
+                smoothLookAt(player, threat.getEyePosition(), 50.0f);
+                mc.gameMode.attack(player, threat);
+                player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
+            }
         }
 
         fleeFromEntity(mc, player, threat, 20.0);
     }
 
     private void handleMeleeCombat(Minecraft mc, LocalPlayer player, Entity target, double distSq) {
+        if (!(target instanceof LivingEntity living) || !target.isAlive() || target.isRemoved() || !isHostileMob(living)) {
+            stopShielding();
+            stopApproaching();
+            currentThreat = null;
+            lockedThreat = null;
+            return;
+        }
+
         stopFleeing();
 
         // Skeleton aiming bow at distance: shield up while advancing
@@ -405,6 +426,12 @@ public class MobDefenseChain extends SingleTaskChain {
     }
 
     private void tryAttack(Minecraft mc, LocalPlayer player, Entity target) {
+        if (!(target instanceof LivingEntity living) || !target.isAlive() || target.isRemoved()) {
+            return;
+        }
+        if (target instanceof ItemEntity || target instanceof ExperienceOrb || target instanceof ArmorStand) {
+            return;
+        }
         if (player.getAttackStrengthScale(0.0f) >= 0.85f && System.currentTimeMillis() - lastAttackTime > 400) {
             smoothLookAt(player, target.getEyePosition(), 45.0f);
 
@@ -503,6 +530,33 @@ public class MobDefenseChain extends SingleTaskChain {
         }
     }
 
+    public static boolean isHostileMob(Entity entity) {
+        if (entity == null || !entity.isAlive() || entity.isRemoved()) return false;
+        if (!(entity instanceof LivingEntity)) return false;
+        if (entity instanceof ItemEntity || entity instanceof ExperienceOrb || entity instanceof ArmorStand) return false;
+
+        if (entity instanceof Creeper) return true;
+        if (entity instanceof AbstractSkeleton) return true;
+        if (entity instanceof Enderman enderman) {
+            return enderman.isCreepy() || enderman.hasBeenStaredAt();
+        }
+        if (entity instanceof Monster) return true;
+        if (entity instanceof Slime) return true;
+        if (entity instanceof Ghast) return true;
+        if (entity instanceof Hoglin) return true;
+        if (entity instanceof Zoglin) return true;
+        if (entity instanceof Shulker) return true;
+        if (entity instanceof EnderDragon) return true;
+        if (entity instanceof WitherBoss) return true;
+
+        if (entity instanceof Mob mob) {
+            Entity target = mob.getTarget();
+            if (target instanceof LocalPlayer) return true;
+        }
+
+        return false;
+    }
+
     /**
      * Intelligent multi-mob threat selection with hysteresis, point-blank retargeting,
      * and trajectory-based projectile detection.
@@ -527,7 +581,7 @@ public class MobDefenseChain extends SingleTaskChain {
         }
 
         // 3. TARGET STICKINESS with POINT-BLANK RETARGETING:
-        if (lockedThreat != null && lockedThreat.isAlive() && !lockedThreat.isRemoved()) {
+        if (lockedThreat != null && lockedThreat.isAlive() && !lockedThreat.isRemoved() && (isHostileMob(lockedThreat) || lockedThreat instanceof Projectile)) {
             double currentDistSq = lockedThreat.distanceToSqr(player);
             if (currentDistSq < 196.0) {
                 // If another hostile is point-blank (< 2.8 blocks) and current target is > 3.8 blocks away:
@@ -536,11 +590,11 @@ public class MobDefenseChain extends SingleTaskChain {
                 double closestPointBlankDistSq = Double.MAX_VALUE;
 
                 for (Entity entity : mc.level.entitiesForRendering()) {
-                    if (entity != lockedThreat && entity instanceof Monster monster && monster.isAlive() && !monster.isRemoved()) {
-                        double dSq = monster.distanceToSqr(player);
+                    if (entity != lockedThreat && isHostileMob(entity)) {
+                        double dSq = entity.distanceToSqr(player);
                         if (dSq < 8.0 && dSq < closestPointBlankDistSq) {
                             closestPointBlankDistSq = dSq;
-                            pointBlankThreat = monster;
+                            pointBlankThreat = entity;
                         }
                     }
                 }
@@ -557,9 +611,9 @@ public class MobDefenseChain extends SingleTaskChain {
         // Current target is invalid, dead, or out of range. Pick the best new threat!
         lockedThreat = null;
 
-        // 4. Retaliation: if damaged recently by a mob within 12 blocks, target them
+        // 4. Retaliation: if damaged recently by a hostile mob within 12 blocks, target them
         LivingEntity hurtBy = player.getLastHurtByMob();
-        if (hurtBy != null && hurtBy.isAlive() && hurtBy != player && !hurtBy.isRemoved()) {
+        if (hurtBy != null && hurtBy.isAlive() && hurtBy != player && !hurtBy.isRemoved() && isHostileMob(hurtBy)) {
             if (hurtBy.distanceToSqr(player) < 144.0) {
                 lockedThreat = hurtBy;
                 return lockedThreat;
@@ -568,27 +622,29 @@ public class MobDefenseChain extends SingleTaskChain {
 
         // 5. Intelligent Multi-Mob Scoring
         Entity bestThreat = null;
-        double bestScore = -1000.0;
+        double bestScore = 0.0; // Threat score MUST be positive (> 0.0)!
 
         for (Entity entity : mc.level.entitiesForRendering()) {
             if (!entity.isAlive() || entity == player || entity.isRemoved()) continue;
+            // STRICT FILTER: NEVER target dropped items, XP orbs, animals, or non-hostiles!
+            if (!isHostileMob(entity)) continue;
 
             double distSq = entity.distanceToSqr(player);
             if (distSq > 196.0) continue; // max 14 blocks
 
             double dist = Math.sqrt(distSq);
-            double score = 0;
+            double score;
 
             if (entity instanceof Creeper) {
                 score = 90.0 - dist * 3.5;
             } else if (entity instanceof Enderman enderman) {
-                if (enderman.isCreepy() || enderman.hasBeenStaredAt()) {
-                    score = 80.0 - dist * 3.0;
-                }
+                score = 85.0 - dist * 3.0;
             } else if (entity instanceof AbstractSkeleton) {
                 score = 75.0 - dist * 2.5;
             } else if (entity instanceof Monster) {
                 score = 70.0 - dist * 3.0;
+            } else {
+                score = 60.0 - dist * 3.0;
             }
 
             if (score > bestScore) {
