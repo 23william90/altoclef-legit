@@ -28,6 +28,7 @@ public class InventoryManager {
         if (player == null || !player.isAlive()) return;
 
         // Don't modify inventory while an external screen or container is open
+        if (player.containerMenu != player.inventoryMenu) return;
         if (mc.gui != null && mc.gui.screen() != null) return;
         if (mc.gameMode == null) return;
 
