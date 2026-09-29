@@ -103,6 +103,7 @@ $RECYCLE.BIN/
 
 .gradle
 build/
+baritone-26.3/
 
 # Ignore Gradle GUI config
 gradle-app.setting
