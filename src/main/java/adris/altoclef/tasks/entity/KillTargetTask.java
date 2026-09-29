@@ -28,6 +28,7 @@ public class KillTargetTask extends Task {
     private boolean finished = false;
     private long lastAttackTime = 0;
     private boolean shielding = false;
+    private boolean approaching = false;
 
     public KillTargetTask(String targetQuery) {
         this.targetQuery = targetQuery.trim().toLowerCase();
@@ -38,6 +39,7 @@ public class KillTargetTask extends Task {
         finished = false;
         currentTarget = null;
         shielding = false;
+        approaching = false;
         setDebugState("Hunting target: " + targetQuery + "...");
     }
 
@@ -72,14 +74,12 @@ public class KillTargetTask extends Task {
         // 1. Equip best weapon
         equipBestWeapon(player);
 
-        // 2. Aim at target eye level smoothly
-        smoothLookAt(player, currentTarget.getEyePosition(), 35.0f);
-
-        // 3. Shield against ranged or heavy counter attacks if we have shield and cooldown allows
+        // 2. Shield against ranged or heavy counter attacks if we have shield and cooldown allows
         if (dist > 4.0 && dist < 16.0 && hasShield(player)) {
             ItemStack targetItem = currentTarget.getMainHandItem();
             String heldName = InventoryManager.getItemName(targetItem);
             if (heldName.contains("bow") || heldName.contains("crossbow") || heldName.contains("trident")) {
+                smoothLookAt(player, currentTarget.getEyePosition(), 45.0f);
                 startShielding();
                 approachTarget(currentTarget);
                 return null;
@@ -88,15 +88,20 @@ public class KillTargetTask extends Task {
 
         stopShielding();
 
-        // 4. Close the distance using Baritone
-        if (dist > 3.2) {
-            approachTarget(currentTarget);
+        // 3. Close the distance using Baritone with hysteresis (approach if > 3.6m, stop if <= 3.0m)
+        if (approaching) {
+            if (dist <= 3.0) {
+                stopApproaching();
+            }
         } else {
-            stopApproaching();
+            if (dist > 3.6) {
+                approachTarget(currentTarget);
+            }
         }
 
-        // 5. Strike target with timed attacks and jump-crits
+        // 4. Strike target with timed attacks and jump-crits
         if (dist <= 3.8) {
+            smoothLookAt(player, currentTarget.getEyePosition(), 45.0f);
             if (player.getAttackStrengthScale(0.0f) >= 0.85f && System.currentTimeMillis() - lastAttackTime > 400) {
                 // Critical hit: jump if on ground
                 if (player.onGround() && !player.isInWater()) {
@@ -154,19 +159,20 @@ public class KillTargetTask extends Task {
     }
 
     private void approachTarget(Entity target) {
+        if (approaching) return;
+        approaching = true;
         try {
             IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (baritone != null) {
-                if (!baritone.getCustomGoalProcess().isActive() || !baritone.getPathingBehavior().isPathing()) {
-                    baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(target.blockPosition(), 1));
-                }
-                baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, true);
+                baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(target.blockPosition(), 2));
             }
         } catch (Throwable ignored) {
         }
     }
 
     private void stopApproaching() {
+        if (!approaching) return;
+        approaching = false;
         try {
             IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (baritone != null && baritone.getCustomGoalProcess().isActive()) {
@@ -265,14 +271,6 @@ public class KillTargetTask extends Task {
 
         player.setYRot(newYaw);
         player.setXRot(newPitch);
-
-        try {
-            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
-            if (baritone != null) {
-                baritone.getLookBehavior().updateTarget(new Rotation(newYaw, newPitch), true);
-            }
-        } catch (Throwable ignored) {
-        }
     }
 
     private static float wrapDegrees(float degrees) {

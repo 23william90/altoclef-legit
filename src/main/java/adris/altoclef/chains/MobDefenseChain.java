@@ -6,7 +6,6 @@ import adris.altoclef.tasksystem.TaskRunner;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.pathing.goals.GoalNear;
-import baritone.api.utils.Rotation;
 import baritone.api.utils.input.Input;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -36,6 +35,7 @@ public class MobDefenseChain extends SingleTaskChain {
     private boolean isRetreating = false;
     private long lastAttackTime = 0;
     private long creeperBackoffTimer = 0;
+    private long dodgeTimer = 0;
 
     public MobDefenseChain(TaskRunner runner) {
         super(runner);
@@ -77,7 +77,7 @@ public class MobDefenseChain extends SingleTaskChain {
 
         // Emergency 2: Incoming projectile heading straight for us
         if (currentThreat instanceof Projectile) {
-            return 82.0f;
+            return 85.0f;
         }
 
         // Emergency 3: Low health with hostile nearby -> Retreat to heal!
@@ -124,6 +124,19 @@ public class MobDefenseChain extends SingleTaskChain {
             return;
         }
 
+        // Clean up completed dodge strafe
+        if (dodgeTimer > 0 && System.currentTimeMillis() > dodgeTimer) {
+            dodgeTimer = 0;
+            try {
+                IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                if (baritone != null) {
+                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_LEFT, false);
+                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_RIGHT, false);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+
         double distSq = currentThreat.distanceToSqr(player);
 
         // 1. Creeper Defense & Smart Evasion
@@ -154,15 +167,15 @@ public class MobDefenseChain extends SingleTaskChain {
 
         if (isSwelling) {
             if (hasShield) {
-                // If we have a shield, face the creeper and block the explosion!
+                // Shield blocks 100% of creeper blast: stand ground and block
                 stopFleeing();
                 stopApproaching();
                 ensureShieldEquipped(mc, player);
-                smoothLookAt(player, creeper.getEyePosition(), 45.0f);
+                smoothLookAt(player, creeper.getEyePosition(), 50.0f);
                 startShielding();
                 return;
             } else {
-                // NO SHIELD AND SWELLING: SPRINT AWAY IMMEDIATELY!
+                // NO SHIELD AND SWELLING: Sprint away immediately
                 stopShielding();
                 fleeFromEntity(mc, player, creeper, 16.0);
                 return;
@@ -172,15 +185,22 @@ public class MobDefenseChain extends SingleTaskChain {
         // Creeper not swelling yet
         stopShielding();
 
-        // Always face the creeper smoothly (never snap camera 180 degrees away)
-        smoothLookAt(player, creeper.getEyePosition(), 35.0f);
+        // Movement with hysteresis: approach if > 3.6m, stop if <= 3.0m
+        if (approaching) {
+            if (distSq <= 9.0) {
+                stopApproaching();
+            }
+        } else {
+            if (distSq > 13.0) {
+                stopFleeing();
+                equipBestWeapon(player);
+                approachTarget(creeper);
+            }
+        }
 
-        if (distSq > 11.0) { // > 3.3 blocks away
-            stopFleeing();
-            equipBestWeapon(player);
-            approachTarget(creeper);
-        } else { // In melee strike reach (<= 3.3 blocks)
-            stopApproaching();
+        // When in strike reach (<= 3.5 blocks)
+        if (distSq <= 12.25) {
+            smoothLookAt(player, creeper.getEyePosition(), 40.0f);
             equipBestWeapon(player);
 
             // Hit creeper on attack cooldown
@@ -191,7 +211,7 @@ public class MobDefenseChain extends SingleTaskChain {
                 creeperBackoffTimer = System.currentTimeMillis() + 350;
             }
 
-            // Immediately backstep while keeping eyes locked on creeper to keep fuse reset
+            // Backstep while facing creeper to reset its fuse
             if (System.currentTimeMillis() < creeperBackoffTimer) {
                 try {
                     IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
@@ -215,23 +235,25 @@ public class MobDefenseChain extends SingleTaskChain {
 
     private void handleProjectileDefense(Minecraft mc, LocalPlayer player, Projectile projectile) {
         if (hasShield(player)) {
+            stopFleeing();
+            stopApproaching();
             ensureShieldEquipped(mc, player);
             Entity owner = projectile.getOwner();
             if (owner != null && owner.isAlive()) {
-                smoothLookAt(player, owner.getEyePosition(), 45.0f);
+                smoothLookAt(player, owner.getEyePosition(), 60.0f);
             } else {
-                smoothLookAt(player, projectile.position(), 45.0f);
+                smoothLookAt(player, projectile.position(), 60.0f);
             }
             startShielding();
         } else {
-            // Dodge: strafe sideways relative to projectile flight path
-            Vec3 vel = projectile.getDeltaMovement().normalize();
-            Vec3 side = new Vec3(-vel.z, 0, vel.x).normalize().scale(3.5);
-            BlockPos dodgePos = BlockPos.containing(player.position().add(side));
+            // Unshielded: instantly strafe sideways to dodge the arrow
+            stopShielding();
             try {
                 IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
                 if (baritone != null) {
-                    baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(dodgePos, 1));
+                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_LEFT, true);
+                    baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, true);
+                    dodgeTimer = System.currentTimeMillis() + 350;
                 }
             } catch (Throwable ignored) {
             }
@@ -241,10 +263,10 @@ public class MobDefenseChain extends SingleTaskChain {
     private void handleLowHealthRetreat(Minecraft mc, LocalPlayer player, Entity threat) {
         stopShielding();
 
-        // If hostile is in immediate face (< 2.2 blocks) while retreating, defensive strike to knock them back
-        if (threat.distanceToSqr(player) <= 5.5 && player.getAttackStrengthScale(0.0f) >= 0.75f) {
+        // If hostile is point-blank (< 2.2 blocks) while retreating, defensive strike to push away
+        if (threat.distanceToSqr(player) <= 5.0 && player.getAttackStrengthScale(0.0f) >= 0.75f) {
             equipBestWeapon(player);
-            smoothLookAt(player, threat.getEyePosition(), 45.0f);
+            smoothLookAt(player, threat.getEyePosition(), 50.0f);
             mc.gameMode.attack(player, threat);
             player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
         }
@@ -255,11 +277,11 @@ public class MobDefenseChain extends SingleTaskChain {
     private void handleMeleeCombat(Minecraft mc, LocalPlayer player, Entity target, double distSq) {
         stopFleeing();
 
-        // Skeleton drawing bow at distance: shield up while advancing
-        if (target instanceof AbstractSkeleton skeleton && distSq < 144.0 && distSq > 16.0) {
-            if (hasShield(player)) {
+        // Skeleton aiming bow at distance: shield up while advancing
+        if (target instanceof AbstractSkeleton skeleton && distSq < 196.0 && distSq > 9.0) {
+            if (hasShield(player) && (skeleton.isAggressive() || skeleton.isUsingItem())) {
                 ensureShieldEquipped(mc, player);
-                smoothLookAt(player, skeleton.getEyePosition(), 35.0f);
+                smoothLookAt(player, skeleton.getEyePosition(), 45.0f);
                 startShielding();
                 approachTarget(target);
                 return;
@@ -268,17 +290,21 @@ public class MobDefenseChain extends SingleTaskChain {
 
         stopShielding();
         equipBestWeapon(player);
-        smoothLookAt(player, target.getEyePosition(), 35.0f);
 
-        // Pursue enemy
-        if (distSq > 9.0) {
-            approachTarget(target);
+        // Pursue with hysteresis: approach if > 3.6m, stop if <= 3.0m
+        if (approaching) {
+            if (distSq <= 9.0) {
+                stopApproaching();
+            }
         } else {
-            stopApproaching();
+            if (distSq > 13.0) {
+                approachTarget(target);
+            }
         }
 
-        // Strike when in reach (< 3.8 blocks)
-        if (distSq <= 16.0) {
+        // Aim and attack when within reach (<= 3.8 blocks)
+        if (distSq <= 14.5) {
+            smoothLookAt(player, target.getEyePosition(), 40.0f);
             tryAttack(mc, player, target);
         }
     }
@@ -303,11 +329,6 @@ public class MobDefenseChain extends SingleTaskChain {
                 if (!baritone.getCustomGoalProcess().isActive() || !baritone.getPathingBehavior().isPathing()) {
                     baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(fleeTarget, 2));
                 }
-
-                // Sprint forward away from threat via Baritone pathing
-                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
-                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, true);
-                baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, true);
             }
         } catch (Throwable ignored) {
         }
@@ -322,20 +343,21 @@ public class MobDefenseChain extends SingleTaskChain {
                 baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
                 baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
                 baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, false);
+                if (baritone.getCustomGoalProcess().isActive()) {
+                    baritone.getCustomGoalProcess().path();
+                }
             }
         } catch (Throwable ignored) {
         }
     }
 
     private void approachTarget(Entity target) {
+        if (approaching) return;
         approaching = true;
         try {
             IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (baritone != null) {
-                if (!baritone.getCustomGoalProcess().isActive() || !baritone.getPathingBehavior().isPathing()) {
-                    baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(target.blockPosition(), 1));
-                }
-                baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, true);
+                baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(target.blockPosition(), 2));
             }
         } catch (Throwable ignored) {
         }
@@ -362,7 +384,7 @@ public class MobDefenseChain extends SingleTaskChain {
         if (player.getAttackStrengthScale(0.0f) >= 0.85f && System.currentTimeMillis() - lastAttackTime > 400) {
             smoothLookAt(player, target.getEyePosition(), 45.0f);
 
-            // Jump critical if moving forward on ground
+            // Jump critical if on ground
             if (player.onGround() && !player.isInWater()) {
                 player.jumpFromGround();
             }
@@ -458,13 +480,13 @@ public class MobDefenseChain extends SingleTaskChain {
     }
 
     /**
-     * Intelligent multi-mob threat selection with hysteresis and emergency overrides.
-     * Prevents rapid camera oscillation when multiple hostiles surround the player.
+     * Intelligent multi-mob threat selection with hysteresis, point-blank retargeting,
+     * and trajectory-based projectile detection.
      */
     private Entity findPriorityThreat(Minecraft mc, LocalPlayer player) {
         if (mc.level == null) return null;
 
-        // 1. TOP EMERGENCY: Swelling or ignited creeper within 10 blocks (takes priority over everything!)
+        // 1. TOP EMERGENCY: Swelling or ignited creeper within 10 blocks
         for (Entity entity : mc.level.entitiesForRendering()) {
             if (entity instanceof Creeper creeper && creeper.isAlive() && !creeper.isRemoved()) {
                 if (creeper.distanceToSqr(player) < 100.0 && (creeper.getSwellDir() > 0 || creeper.isIgnited())) {
@@ -474,37 +496,32 @@ public class MobDefenseChain extends SingleTaskChain {
             }
         }
 
-        // 2. EMERGENCY: Incoming projectile headed straight for us within 8 blocks
-        for (Entity entity : mc.level.entitiesForRendering()) {
-            if (entity instanceof Projectile projectile && projectile.isAlive() && !projectile.isRemoved()) {
-                double distSq = projectile.distanceToSqr(player);
-                if (distSq < 64.0) {
-                    Vec3 velocity = projectile.getDeltaMovement();
-                    Vec3 toPlayer = player.position().subtract(projectile.position()).normalize();
-                    if (velocity.dot(toPlayer) > 0.4) {
-                        return projectile;
-                    }
-                }
-            }
+        // 2. EMERGENCY: Incoming projectile headed straight for player within 24 blocks
+        Projectile incoming = findIncomingProjectile(mc, player);
+        if (incoming != null) {
+            return incoming;
         }
 
-        // 3. TARGET STICKINESS: Check if current locked threat is still valid
+        // 3. TARGET STICKINESS with POINT-BLANK RETARGETING:
         if (lockedThreat != null && lockedThreat.isAlive() && !lockedThreat.isRemoved()) {
             double currentDistSq = lockedThreat.distanceToSqr(player);
-            // If target is within 14 blocks, stick to it unless another mob is in point-blank melee (< 2.2 blocks)
             if (currentDistSq < 196.0) {
+                // If another hostile is point-blank (< 2.8 blocks) and current target is > 3.8 blocks away:
+                // Retarget immediately to eliminate the point-blank attacker!
                 Entity pointBlankThreat = null;
+                double closestPointBlankDistSq = Double.MAX_VALUE;
+
                 for (Entity entity : mc.level.entitiesForRendering()) {
                     if (entity != lockedThreat && entity instanceof Monster monster && monster.isAlive() && !monster.isRemoved()) {
                         double dSq = monster.distanceToSqr(player);
-                        if (dSq < 5.0 && currentDistSq > 16.0) { // < 2.2 blocks vs > 4.0 blocks
+                        if (dSq < 8.0 && dSq < closestPointBlankDistSq) {
+                            closestPointBlankDistSq = dSq;
                             pointBlankThreat = monster;
-                            break;
                         }
                     }
                 }
 
-                if (pointBlankThreat != null) {
+                if (pointBlankThreat != null && currentDistSq > 14.5) {
                     lockedThreat = pointBlankThreat;
                     return lockedThreat;
                 }
@@ -538,7 +555,7 @@ public class MobDefenseChain extends SingleTaskChain {
             double dist = Math.sqrt(distSq);
             double score = 0;
 
-            if (entity instanceof Creeper creeper) {
+            if (entity instanceof Creeper) {
                 score = 90.0 - dist * 3.5;
             } else if (entity instanceof Enderman enderman) {
                 if (enderman.isCreepy() || enderman.hasBeenStaredAt()) {
@@ -560,9 +577,37 @@ public class MobDefenseChain extends SingleTaskChain {
         return lockedThreat;
     }
 
+    private Projectile findIncomingProjectile(Minecraft mc, LocalPlayer player) {
+        if (mc.level == null) return null;
+        Vec3 playerEye = player.getEyePosition();
+
+        for (Entity entity : mc.level.entitiesForRendering()) {
+            if (entity instanceof Projectile projectile && projectile.isAlive() && !projectile.isRemoved()) {
+                double distSq = projectile.distanceToSqr(player);
+                if (distSq > 576.0 || distSq < 0.2) continue; // max 24 blocks
+
+                Vec3 vel = projectile.getDeltaMovement();
+                if (vel.lengthSqr() < 0.05) continue; // stationary or stuck arrow
+
+                Vec3 toPlayer = playerEye.subtract(projectile.position());
+                double dot = vel.dot(toPlayer);
+                if (dot <= 0) continue; // flying away
+
+                double velSq = vel.lengthSqr();
+                double t = dot / velSq;
+                if (t > 0 && t < 35.0) { // arriving within 35 ticks
+                    Vec3 closestPoint = projectile.position().add(vel.scale(t));
+                    if (closestPoint.distanceTo(playerEye) < 1.8) {
+                        return projectile;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     /**
      * Smoothly rotates the camera towards the target position without instantaneous snapping or jitter.
-     * Synchronizes with Baritone's LookBehavior to prevent rotational conflicts.
      */
     private void smoothLookAt(LocalPlayer player, Vec3 targetPos, float maxTurnPerTick) {
         Vec3 eyes = player.getEyePosition();
@@ -594,15 +639,6 @@ public class MobDefenseChain extends SingleTaskChain {
 
         player.setYRot(newYaw);
         player.setXRot(newPitch);
-
-        // Synchronize with Baritone's LookBehavior so Baritone does not fight player rotation
-        try {
-            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
-            if (baritone != null) {
-                baritone.getLookBehavior().updateTarget(new Rotation(newYaw, newPitch), true);
-            }
-        } catch (Throwable ignored) {
-        }
     }
 
     private static float wrapDegrees(float degrees) {
