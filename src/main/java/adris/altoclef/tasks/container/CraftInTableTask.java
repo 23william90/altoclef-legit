@@ -73,6 +73,14 @@ public class CraftInTableTask extends Task {
         // Diamond Pickaxe: 3 diamonds (1,2,3), 2 sticks (5,8)
         Map<Integer, String> dPick = Map.of(1, "diamond", 2, "diamond", 3, "diamond", 5, "stick", 8, "stick");
         RECIPES.put("diamond_pickaxe", new RecipeDef(dPick, Map.of("diamond", 3, "stick", 2)));
+
+        // Golden Helmet: 5 gold ingots (1,2,3,4,6)
+        Map<Integer, String> gHelm = Map.of(1, "gold_ingot", 2, "gold_ingot", 3, "gold_ingot", 4, "gold_ingot", 6, "gold_ingot");
+        RECIPES.put("golden_helmet", new RecipeDef(gHelm, Map.of("gold_ingot", 5)));
+
+        // Bed: 3 wool (4,5,6), 3 planks (7,8,9)
+        Map<Integer, String> bed = Map.of(4, "wool", 5, "wool", 6, "wool", 7, "plank", 8, "plank", 9, "plank");
+        RECIPES.put("bed", new RecipeDef(bed, Map.of("wool", 3, "plank", 3)));
     }
 
     public CraftInTableTask(String itemTarget, int targetCount) {
