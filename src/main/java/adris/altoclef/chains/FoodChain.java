@@ -8,6 +8,7 @@ import baritone.api.utils.input.Input;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.component.DataComponents;
+import adris.altoclef.control.InventoryManager;
 import net.minecraft.world.item.ItemStack;
 
 public class FoodChain extends SingleTaskChain {
@@ -117,7 +118,7 @@ public class FoodChain extends SingleTaskChain {
         try {
             if (stack.has(DataComponents.FOOD)) {
                 // Avoid dangerous foods like rotten flesh, spider eyes, poisonous potato unless starving
-                String name = stack.getItem().toString().toLowerCase();
+                String name = InventoryManager.getItemName(stack);
                 if (name.contains("rotten_flesh") || name.contains("spider_eye") || name.contains("poisonous_potato") || name.contains("pufferfish")) {
                     return false;
                 }
@@ -140,7 +141,7 @@ public class FoodChain extends SingleTaskChain {
 
     @Override
     public boolean isActive() {
-        return eating;
+        return true;
     }
 
     @Override

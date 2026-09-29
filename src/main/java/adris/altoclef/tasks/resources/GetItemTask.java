@@ -1,8 +1,10 @@
 package adris.altoclef.tasks.resources;
 
 import adris.altoclef.AltoClef;
+import adris.altoclef.control.InventoryManager;
 import adris.altoclef.tasks.construction.MineBlockTask;
 import adris.altoclef.tasksystem.Task;
+import net.minecraft.client.Minecraft;
 
 public class GetItemTask extends Task {
 
@@ -34,6 +36,12 @@ public class GetItemTask extends Task {
 
     @Override
     protected Task onTick() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null && InventoryManager.countItems(mc.player, item) >= targetCount) {
+            setDebugState("Acquired " + targetCount + "x " + item + "!");
+            return null;
+        }
+
         setDebugState("Acquiring " + item);
         if (mineSubTask == null) {
             String resolvedBlocks = resolveBlocksForItem(item);
@@ -54,6 +62,10 @@ public class GetItemTask extends Task {
 
     @Override
     public boolean isFinished() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null && InventoryManager.countItems(mc.player, item) >= targetCount) {
+            return true;
+        }
         return mineSubTask != null && mineSubTask.isFinished();
     }
 

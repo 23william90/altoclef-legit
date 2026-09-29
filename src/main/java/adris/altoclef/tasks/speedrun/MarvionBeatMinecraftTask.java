@@ -1,6 +1,7 @@
 package adris.altoclef.tasks.speedrun;
 
 import adris.altoclef.AltoClef;
+import adris.altoclef.control.InventoryManager;
 import adris.altoclef.tasks.construction.MineBlockTask;
 import adris.altoclef.tasks.construction.MineBlockTask.ToolTier;
 import adris.altoclef.tasks.container.CraftInTableTask;
@@ -8,22 +9,30 @@ import adris.altoclef.tasks.container.SmeltInFurnaceTask;
 import adris.altoclef.tasksystem.Task;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
+import baritone.api.pathing.goals.GoalNear;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.WinScreen;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.AreaEffectCloud;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.enderdragon.phases.EnderDragonPhase;
 import net.minecraft.world.entity.monster.Enderman;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.ChestMenu;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
+
+import java.util.HashSet;
+import java.util.Set;
 
 public class MarvionBeatMinecraftTask extends Task {
 
@@ -36,26 +45,30 @@ public class MarvionBeatMinecraftTask extends Task {
     private double originalEntityScaling = 1.0;
     private int bedDetonationCooldown = 0;
     private boolean isFinished = false;
+    private final Set<BlockPos> lootedChests = new HashSet<>();
+    private int clutterTimer = 0;
 
     public enum SpeedrunPhase {
         START_WOOD("Marvion Phase 1: Fast Wood Gathering"),
         CRAFT_BASIC_MATERIALS("Marvion Phase 2: Rapid 2x2 Crafting (Planks/Sticks/Table)"),
         CRAFT_WOODEN_PICKAXE("Marvion Phase 3: Crafting Wooden Pickaxe"),
+        RECOVER_CRAFTING_TABLE("Marvion: Retrieving Nearby Crafting Table"),
         MINE_COBBLESTONE("Marvion Phase 4: Mining Cobblestone (Holding Wooden Pickaxe)"),
         CRAFT_STONE_TOOLS("Marvion Phase 5: Crafting Stone Pickaxe, Sword & Furnace"),
         MINE_FUEL("Marvion Phase 6: Mining Furnace Fuel"),
         MINE_IRON_ORE("Marvion Phase 7: Mining Iron Ore (Holding Stone Pickaxe)"),
         SMELT_IRON("Marvion Phase 8: Smelting Raw Iron in Furnace"),
         CRAFT_IRON_GEAR("Marvion Phase 9: Crafting Iron Pickaxe, Shield & Bucket"),
-        MINE_DIAMONDS("Marvion Phase 10: Mining Diamonds (Holding Iron Pickaxe)"),
-        CRAFT_DIAMOND_PICKAXE("Marvion Phase 11: Crafting Diamond Pickaxe"),
-        PRUNE_INVENTORY("Marvion Phase 12: Pruning Inventory Clutter"),
-        ENTER_NETHER("Marvion Phase 13: Portal Building & Entering Nether"),
-        NETHER_FORTRESS_AND_BLAZES("Marvion Phase 14: Fortress Hunting & Blaze Rods (32 RD Boost)"),
-        PIGLIN_BARTER_PEARLS("Marvion Phase 15: Piglin Bartering & Ender Pearls"),
-        LOCATE_STRONGHOLD("Marvion Phase 16: Eye Crafting & Stronghold Infiltration"),
-        WAIT_FOR_END_CHUNKS("Marvion Phase 17: Stabilizing End Platform & Chunks"),
-        SLAY_DRAGON_BEDS("Marvion Phase 18: Bed-Explosion Dragon One-Cycle & Anti-Enderman"),
+        CRAFT_GOLDEN_HELMET("Marvion Phase 10: Crafting Golden Helmet (Piglin Pacification)"),
+        MINE_DIAMONDS("Marvion Phase 11: Mining Diamonds (Holding Iron Pickaxe)"),
+        CRAFT_DIAMOND_PICKAXE("Marvion Phase 12: Crafting Diamond Pickaxe"),
+        COLLECT_BEDS("Marvion Phase 13: Collecting Beds (For Dragon One-Cycle)"),
+        ENTER_NETHER("Marvion Phase 14: Portal Building & Entering Nether"),
+        NETHER_FORTRESS_AND_BLAZES("Marvion Phase 15: Fortress Hunting & Blaze Rods (32 RD Boost)"),
+        PIGLIN_BARTER_PEARLS("Marvion Phase 16: Piglin Bartering & Ender Pearls"),
+        LOCATE_STRONGHOLD("Marvion Phase 17: Eye Crafting & Stronghold Infiltration"),
+        WAIT_FOR_END_CHUNKS("Marvion Phase 18: Stabilizing End Platform & Chunks"),
+        SLAY_DRAGON_BEDS("Marvion Phase 19: Bed-Explosion Dragon One-Cycle & Anti-Enderman"),
         VICTORY("Marvion Complete: Beating Minecraft (Marvion Optimized)");
 
         private final String description;
@@ -75,7 +88,12 @@ public class MarvionBeatMinecraftTask extends Task {
 
     @Override
     protected void onStart() {
-        setDebugState("Initializing Marvion Speedrun Engine (Ordered Progression)...");
+        setDebugState("Initializing Marvion Speedrun Engine (Complete Error-Safe Suite)...");
+        currentPhase = SpeedrunPhase.START_WOOD;
+        currentSubTask = null;
+        isFinished = false;
+        enteredEndTimestamp = 0;
+        lootedChests.clear();
         Minecraft mc = Minecraft.getInstance();
         if (mc.options != null) {
             try {
@@ -89,7 +107,8 @@ public class MarvionBeatMinecraftTask extends Task {
     @Override
     protected Task onTick() {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null) {
+        LocalPlayer player = mc.player;
+        if (player == null || mc.level == null) {
             setDebugState("Waiting for player and world to load...");
             return null;
         }
@@ -102,14 +121,23 @@ public class MarvionBeatMinecraftTask extends Task {
             return null;
         }
 
+        // Marvion Error-Safety Routine 1: Structure Fast-Looting (Ruined Portals & Desert Temples)
+        scanAndLootChests(mc, player);
+
+        // Marvion Error-Safety Routine 2: Inventory Clutter Cleaning
+        if (clutterTimer-- <= 0) {
+            clutterTimer = 40; // Every 2 seconds
+            pruneInventoryClutter(mc, player);
+        }
+
         SpeedrunPhase oldPhase = currentPhase;
         determinePhase(mc);
         setDebugState(currentPhase.getDescription());
 
-        // Apply Marvion Render Distance & Entity Distance Manipulations
+        // Apply Marvion Dynamic Render Distance & Entity Distance Manipulations
         applyPerformanceOptimizations(mc);
 
-        // Special Phase Handling
+        // Special Phase Handling: End Chunks Stabilization
         if (currentPhase == SpeedrunPhase.WAIT_FOR_END_CHUNKS) {
             if (enteredEndTimestamp == 0) {
                 enteredEndTimestamp = System.currentTimeMillis();
@@ -121,7 +149,13 @@ public class MarvionBeatMinecraftTask extends Task {
             currentPhase = SpeedrunPhase.SLAY_DRAGON_BEDS;
         }
 
+        // Special Phase Handling: Dragon Fight with Angry Enderman & Breath Avoidance
         if (currentPhase == SpeedrunPhase.SLAY_DRAGON_BEDS) {
+            // Check dragon breath avoidance first
+            if (handleDragonBreathAvoidance(mc, player)) {
+                return null;
+            }
+            // Check angry enderman priority next
             Task combatTask = handleDragonFight(mc);
             if (combatTask != null) {
                 return combatTask;
@@ -144,11 +178,12 @@ public class MarvionBeatMinecraftTask extends Task {
         if (player == null) return;
 
         ToolTier pickTier = MineBlockTask.getPlayerPickaxeTier(player);
+        boolean hasPickaxe = pickTier.getLevel() >= ToolTier.WOOD.getLevel() || countItemInInventory(mc, "pickaxe") > 0;
 
         String dimension = mc.level != null ? mc.level.dimension().toString().toLowerCase() : "overworld";
 
         int logs = countItemInInventory(mc, "log");
-        int planks = countItemInInventory(mc, "planks");
+        int planks = countItemInInventory(mc, "plank");
         int sticks = countItemInInventory(mc, "stick");
         int tables = countItemInInventory(mc, "crafting_table");
         int furnaces = countItemInInventory(mc, "furnace");
@@ -160,8 +195,15 @@ public class MarvionBeatMinecraftTask extends Task {
         int obsidian = countItemInInventory(mc, "obsidian");
         int blazeRods = countItemInInventory(mc, "blaze_rod");
         int pearls = countItemInInventory(mc, "ender_pearl");
+        int beds = countItemInInventory(mc, "bed");
         boolean hasShield = countItemInInventory(mc, "shield") > 0 || isShieldEquipped(player);
         boolean hasBucket = countItemInInventory(mc, "bucket") > 0;
+        boolean hasGoldenHelmet = countItemInInventory(mc, "golden_helmet") > 0 || isGoldenHelmetEquipped(player);
+
+        int totalWoodPlanks = logs * 4 + planks;
+        boolean hasTable = tables > 0 || isCraftingTableNearby(mc, player, 16);
+        boolean canMakeTable = hasTable || totalWoodPlanks >= 4;
+        boolean hasFurnace = furnaces > 0 || isFurnaceNearby(mc, player, 16);
 
         if (dimension.contains("the_end")) {
             if (enteredEndTimestamp == 0 || System.currentTimeMillis() - enteredEndTimestamp < 2500) {
@@ -178,55 +220,96 @@ public class MarvionBeatMinecraftTask extends Task {
                 currentPhase = SpeedrunPhase.LOCATE_STRONGHOLD;
             }
         } else {
-            // Overworld Strict Ordered Progression
+            // Overworld Strict Ordered Progression with Prerequisite Fallback: NO DEAD ENDS!
 
-            // 1. Wood Logs
-            if (logs < 4 && planks < 8 && pickTier == ToolTier.HAND) {
+            // Prerequisite Fallbacks:
+            // Fallback 1: No Pickaxe and no wood to make one
+            if (!hasPickaxe && totalWoodPlanks < 4) {
                 currentPhase = SpeedrunPhase.START_WOOD;
             }
-            // 2. 2x2 Crafting: Planks, Sticks, Crafting Table
-            else if ((planks < 8 || sticks < 4 || tables < 1) && pickTier == ToolTier.HAND) {
-                currentPhase = SpeedrunPhase.CRAFT_BASIC_MATERIALS;
+            // Fallback 2: No Crafting Table and cannot make one
+            else if (!canMakeTable) {
+                currentPhase = SpeedrunPhase.START_WOOD;
             }
-            // 3. Wooden Pickaxe
-            else if (pickTier == ToolTier.HAND) {
-                currentPhase = SpeedrunPhase.CRAFT_WOODEN_PICKAXE;
+            // Fallback 3: No sticks and no wood when needing to craft tools
+            else if (sticks < 2 && totalWoodPlanks < 1 && (pickTier.getLevel() < ToolTier.STONE.getLevel() || rawIron >= 3 || diamonds >= 3)) {
+                currentPhase = SpeedrunPhase.START_WOOD;
             }
-            // 4. Cobblestone (Must have Wooden Pickaxe!)
-            else if (cobble < 11 && pickTier.getLevel() < ToolTier.STONE.getLevel()) {
+            // Step 1: No Pickaxe at all (or tool broken)
+            else if (!hasPickaxe) {
+                if (totalWoodPlanks < 8) {
+                    currentPhase = SpeedrunPhase.START_WOOD;
+                } else if (planks < 3 || sticks < 2 || !hasTable) {
+                    currentPhase = SpeedrunPhase.CRAFT_BASIC_MATERIALS;
+                } else {
+                    currentPhase = SpeedrunPhase.CRAFT_WOODEN_PICKAXE;
+                }
+            }
+            // Step 2: Portable Crafting Table Recovery (pick up nearby table so bot carries it)
+            else if (tables < 1 && isCraftingTableNearby(mc, player, 10)) {
+                currentPhase = SpeedrunPhase.RECOVER_CRAFTING_TABLE;
+            }
+            // Step 3: Cobblestone (Must have Wooden Pickaxe!)
+            else if (cobble < 14 && pickTier.getLevel() < ToolTier.STONE.getLevel()) {
                 currentPhase = SpeedrunPhase.MINE_COBBLESTONE;
             }
-            // 5. Stone Pickaxe & Furnace
+            // Step 4: Craft Stone Pickaxe
             else if (pickTier.getLevel() < ToolTier.STONE.getLevel()) {
                 currentPhase = SpeedrunPhase.CRAFT_STONE_TOOLS;
-            } else if (furnaces < 1 && ironIngots < 3) {
-                currentPhase = SpeedrunPhase.CRAFT_STONE_TOOLS;
             }
-            // 6. Mine Fuel (Coal/Wood) if needed for furnace
-            else if (coal < 4 && (planks + logs < 4) && rawIron > 0 && ironIngots < 3) {
+            // Step 5: Furnace (Requires 8 Cobblestone)
+            else if (!hasFurnace && ironIngots < 3) {
+                if (cobble < 8) {
+                    currentPhase = SpeedrunPhase.MINE_COBBLESTONE;
+                } else {
+                    currentPhase = SpeedrunPhase.CRAFT_STONE_TOOLS;
+                }
+            }
+            // Step 6: Mine Fuel (Coal/Wood) if needed for furnace
+            else if (coal < 4 && totalWoodPlanks < 4 && rawIron > 0 && ironIngots < 3) {
                 currentPhase = SpeedrunPhase.MINE_FUEL;
             }
-            // 7. Mine Iron Ore (Must have Stone Pickaxe!)
+            // Step 7: Mine Iron Ore (Requires Stone Pickaxe!)
             else if ((rawIron + ironIngots < 15) && pickTier.getLevel() < ToolTier.IRON.getLevel()) {
                 currentPhase = SpeedrunPhase.MINE_IRON_ORE;
             }
-            // 8. Smelt Raw Iron in Furnace
+            // Step 8: Smelt Raw Iron in Furnace
             else if (ironIngots < 3 && rawIron >= 3) {
                 currentPhase = SpeedrunPhase.SMELT_IRON;
             }
-            // 9. Craft Iron Gear (Iron Pickaxe, Shield, Bucket)
+            // Step 9: Craft Iron Gear (Iron Pickaxe, Shield, Bucket)
             else if (pickTier.getLevel() < ToolTier.IRON.getLevel() || !hasShield || !hasBucket) {
-                currentPhase = SpeedrunPhase.CRAFT_IRON_GEAR;
+                if (totalWoodPlanks < 6 && planks < 6) {
+                    currentPhase = SpeedrunPhase.START_WOOD;
+                } else if (ironIngots < 3 && rawIron >= 3) {
+                    currentPhase = SpeedrunPhase.SMELT_IRON;
+                } else if (ironIngots < 3 && (rawIron + ironIngots < 3)) {
+                    currentPhase = SpeedrunPhase.MINE_IRON_ORE;
+                } else {
+                    currentPhase = SpeedrunPhase.CRAFT_IRON_GEAR;
+                }
             }
-            // 10. Mine Diamonds (Must have Iron Pickaxe!)
+            // Step 10: Golden Helmet for Nether Piglin Pacification
+            else if (config.goldenHelmet && !hasGoldenHelmet && countItemInInventory(mc, "gold_ingot") >= 5) {
+                currentPhase = SpeedrunPhase.CRAFT_GOLDEN_HELMET;
+            }
+            // Step 11: Mine Diamonds (Must have Iron Pickaxe!)
             else if (diamonds < 3 && pickTier.getLevel() < ToolTier.DIAMOND.getLevel()) {
                 currentPhase = SpeedrunPhase.MINE_DIAMONDS;
             }
-            // 11. Craft Diamond Pickaxe
+            // Step 12: Craft Diamond Pickaxe
             else if (pickTier.getLevel() < ToolTier.DIAMOND.getLevel()) {
-                currentPhase = SpeedrunPhase.CRAFT_DIAMOND_PICKAXE;
+                if (sticks < 2 && totalWoodPlanks < 1) {
+                    currentPhase = SpeedrunPhase.START_WOOD;
+                } else {
+                    currentPhase = SpeedrunPhase.CRAFT_DIAMOND_PICKAXE;
+                }
             }
-            // 12. Enter Nether
+            // Step 13: Collect Beds for Dragon 1-Cycle
+            else if (config.dragonBedStrats && beds < config.requiredBeds && obsidian >= 10) {
+                currentPhase = SpeedrunPhase.COLLECT_BEDS;
+            }
+            // Step 14: Enter Nether
             else if (obsidian < 10 && !hasBucket) {
                 currentPhase = SpeedrunPhase.ENTER_NETHER;
             } else if (pearls >= 12 && blazeRods >= 7) {
@@ -268,6 +351,112 @@ public class MarvionBeatMinecraftTask extends Task {
         }
     }
 
+    private void scanAndLootChests(Minecraft mc, LocalPlayer player) {
+        if (!config.searchRuinedPortals && !config.searchDesertTemples) return;
+        if (mc.level == null) return;
+
+        // If chest container is currently open, extract valuable loot!
+        if (player.containerMenu instanceof ChestMenu menu) {
+            int containerSize = menu.getContainer().getContainerSize();
+            for (int i = 0; i < containerSize; i++) {
+                ItemStack stack = menu.getSlot(i).getItem();
+                if (!stack.isEmpty()) {
+                    String name = InventoryManager.getItemName(stack);
+                    if (isValuableSpeedrunItem(name)) {
+                        mc.gameMode.handleContainerInput(menu.containerId, i, 0, ContainerInput.QUICK_MOVE, player);
+                    }
+                }
+            }
+            player.closeContainer();
+            return;
+        }
+
+        // Search for nearby unopened chests
+        BlockPos pPos = player.blockPosition();
+        for (int x = -10; x <= 10; x++) {
+            for (int y = -4; y <= 4; y++) {
+                for (int z = -10; z <= 10; z++) {
+                    BlockPos pos = pPos.offset(x, y, z);
+                    if (mc.level.getBlockState(pos).is(Blocks.CHEST) && !lootedChests.contains(pos)) {
+                        double distSq = player.distanceToSqr(Vec3.atCenterOf(pos));
+                        if (distSq < 16.0) {
+                            BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false);
+                            mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+                            lootedChests.add(pos);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private boolean isValuableSpeedrunItem(String name) {
+        return name.contains("diamond") || name.contains("iron_ingot") || name.contains("golden_apple") ||
+                name.contains("obsidian") || name.contains("flint_and_steel") || name.contains("gold_ingot") ||
+                name.contains("golden_helmet") || name.contains("fire_charge") || name.contains("ender_pearl");
+    }
+
+    private void pruneInventoryClutter(Minecraft mc, LocalPlayer player) {
+        if (!config.cleanClutter || player.inventoryMenu == null) return;
+        if (!player.inventoryMenu.getCarried().isEmpty()) return;
+
+        ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
+
+        for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.USE_ROW_SLOT_END; i++) {
+            ItemStack stack = player.inventoryMenu.getSlot(i).getItem();
+            if (stack.isEmpty()) continue;
+            String name = InventoryManager.getItemName(stack);
+
+            boolean shouldDiscard = false;
+
+            // Discard wooden pickaxe if we have iron or diamond
+            if (tier.getLevel() >= ToolTier.IRON.getLevel() && name.contains("wooden_pickaxe")) {
+                shouldDiscard = true;
+            }
+            // Discard stone tools if we have diamond pickaxe
+            if (tier.getLevel() >= ToolTier.DIAMOND.getLevel() && (name.contains("stone_pickaxe") || name.contains("stone_sword"))) {
+                shouldDiscard = true;
+            }
+            // Discard excess lighters (> 1)
+            if (name.contains("flint_and_steel") && countItemInInventory(mc, "flint_and_steel") > 1) {
+                shouldDiscard = true;
+            }
+            // Discard poisonous potatoes
+            if (name.contains("poisonous_potato")) {
+                shouldDiscard = true;
+            }
+
+            if (shouldDiscard) {
+                mc.gameMode.handleContainerInput(0, i, 1, ContainerInput.THROW, player);
+                break;
+            }
+        }
+    }
+
+    private boolean handleDragonBreathAvoidance(Minecraft mc, LocalPlayer player) {
+        if (mc.level == null) return false;
+        for (net.minecraft.world.entity.Entity entity : mc.level.entitiesForRendering()) {
+            if (entity instanceof AreaEffectCloud cloud && cloud.isAlive()) {
+                double dist = player.distanceTo(cloud);
+                if (dist < cloud.getRadius() + 2.5) {
+                    setDebugState("DODGING Dragon's Breath cloud!");
+                    Vec3 away = player.position().subtract(cloud.position()).normalize().scale(5.0);
+                    BlockPos escapePos = BlockPos.containing(player.position().add(away));
+                    try {
+                        IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                        if (baritone != null) {
+                            baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(escapePos, 1));
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private Task handleDragonFight(Minecraft mc) {
         if (mc.player == null || mc.level == null) return null;
 
@@ -277,7 +466,7 @@ public class MarvionBeatMinecraftTask extends Task {
                 if (entity instanceof Enderman enderman && enderman.isAlive()) {
                     if (enderman.isCreepy() || enderman.hasBeenStaredAt()) {
                         double dist = mc.player.distanceTo(enderman);
-                        if (dist < 5.0) {
+                        if (dist < 6.0) {
                             setDebugState("Eliminating angry Enderman threatening dragon fight!");
                             Vec3 target = enderman.getEyePosition();
                             Vec3 playerEye = mc.player.getEyePosition();
@@ -343,16 +532,29 @@ public class MarvionBeatMinecraftTask extends Task {
             case START_WOOD -> new MineBlockTask(
                     mod, "wood logs",
                     "oak_log birch_log spruce_log jungle_log acacia_log dark_oak_log mangrove_log cherry_log pale_oak_log",
-                    6
+                    12
             );
             case CRAFT_BASIC_MATERIALS -> null; // Handled directly in tick via InventoryManager auto-craft
             case CRAFT_WOODEN_PICKAXE -> new CraftInTableTask("wooden_pickaxe");
+            case RECOVER_CRAFTING_TABLE -> new MineBlockTask(mod, "crafting table", "crafting_table", 1);
             case MINE_COBBLESTONE -> new MineBlockTask(
                     mod, "cobblestone",
                     "stone cobblestone deepslate cobbled_deepslate",
-                    11
+                    14
             );
-            case CRAFT_STONE_TOOLS -> new CraftInTableTask("stone_pickaxe");
+            case CRAFT_STONE_TOOLS -> {
+                LocalPlayer player = Minecraft.getInstance().player;
+                if (MineBlockTask.getPlayerPickaxeTier(player).getLevel() < ToolTier.STONE.getLevel()) {
+                    yield new CraftInTableTask("stone_pickaxe");
+                }
+                if (countItemInInventory(Minecraft.getInstance(), "furnace") == 0 && !isFurnaceNearby(Minecraft.getInstance(), player, 16)) {
+                    yield new CraftInTableTask("furnace");
+                }
+                if (countItemInInventory(Minecraft.getInstance(), "stone_sword") == 0) {
+                    yield new CraftInTableTask("stone_sword");
+                }
+                yield new CraftInTableTask("furnace");
+            }
             case MINE_FUEL -> new MineBlockTask(
                     mod, "coal",
                     "coal_ore deepslate_coal_ore",
@@ -374,13 +576,18 @@ public class MarvionBeatMinecraftTask extends Task {
                 }
                 yield new CraftInTableTask("bucket");
             }
+            case CRAFT_GOLDEN_HELMET -> new CraftInTableTask("golden_helmet");
             case MINE_DIAMONDS -> new MineBlockTask(
                     mod, "diamond ore",
                     "diamond_ore deepslate_diamond_ore",
                     3
             );
             case CRAFT_DIAMOND_PICKAXE -> new CraftInTableTask("diamond_pickaxe");
-            case PRUNE_INVENTORY -> null;
+            case COLLECT_BEDS -> new MineBlockTask(
+                    mod, "beds",
+                    "white_bed orange_bed magenta_bed light_blue_bed yellow_bed lime_bed pink_bed gray_bed light_gray_bed cyan_bed purple_bed blue_bed brown_bed green_bed red_bed black_bed",
+                    config.requiredBeds
+            );
             case ENTER_NETHER -> new MineBlockTask(
                     mod, "obsidian",
                     "obsidian",
@@ -414,7 +621,45 @@ public class MarvionBeatMinecraftTask extends Task {
     private boolean isShieldEquipped(LocalPlayer player) {
         if (player == null) return false;
         ItemStack offhand = player.getOffhandItem();
-        return offhand != null && !offhand.isEmpty() && offhand.getItem().toString().toLowerCase().contains("shield");
+        return offhand != null && !offhand.isEmpty() &&
+                (offhand.is(Items.SHIELD) || InventoryManager.getItemName(offhand).contains("shield"));
+    }
+
+    private boolean isGoldenHelmetEquipped(LocalPlayer player) {
+        if (player == null) return false;
+        ItemStack helm = player.inventoryMenu.getSlot(InventoryMenu.ARMOR_SLOT_START).getItem();
+        return !helm.isEmpty() &&
+                (helm.is(Items.GOLDEN_HELMET) || InventoryManager.getItemName(helm).contains("golden_helmet"));
+    }
+
+    private boolean isCraftingTableNearby(Minecraft mc, LocalPlayer player, int radius) {
+        if (mc.level == null || player == null) return false;
+        BlockPos center = player.blockPosition();
+        for (int x = -radius; x <= radius; x++) {
+            for (int y = -3; y <= 3; y++) {
+                for (int z = -radius; z <= radius; z++) {
+                    if (mc.level.getBlockState(center.offset(x, y, z)).is(Blocks.CRAFTING_TABLE)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isFurnaceNearby(Minecraft mc, LocalPlayer player, int radius) {
+        if (mc.level == null || player == null) return false;
+        BlockPos center = player.blockPosition();
+        for (int x = -radius; x <= radius; x++) {
+            for (int y = -3; y <= 3; y++) {
+                for (int z = -radius; z <= radius; z++) {
+                    if (mc.level.getBlockState(center.offset(x, y, z)).is(Blocks.FURNACE)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private void restoreOriginalSettings(Minecraft mc) {
@@ -429,30 +674,18 @@ public class MarvionBeatMinecraftTask extends Task {
 
     @Override
     protected void onStop(Task interruptTask) {
-        if (currentSubTask != null) {
-            currentSubTask.stop(interruptTask);
+        if (stopped()) {
+            if (currentSubTask != null) {
+                currentSubTask.stop(interruptTask);
+            }
+            Minecraft mc = Minecraft.getInstance();
+            restoreOriginalSettings(mc);
         }
-        Minecraft mc = Minecraft.getInstance();
-        restoreOriginalSettings(mc);
     }
 
     private int countItemInInventory(Minecraft mc, String... keywords) {
         if (mc.player == null) return 0;
-        Inventory inv = mc.player.getInventory();
-        int count = 0;
-        for (int i = 0; i < inv.getContainerSize(); i++) {
-            ItemStack stack = inv.getItem(i);
-            if (!stack.isEmpty()) {
-                String name = stack.getItem().toString().toLowerCase();
-                for (String kw : keywords) {
-                    if (name.contains(kw.toLowerCase())) {
-                        count += stack.getCount();
-                        break;
-                    }
-                }
-            }
-        }
-        return count;
+        return InventoryManager.countItems(mc.player, keywords);
     }
 
     @Override
@@ -467,6 +700,6 @@ public class MarvionBeatMinecraftTask extends Task {
 
     @Override
     protected String toDebugString() {
-        return "Marvion Speedrun (Ordered Progression)";
+        return "Marvion Speedrun (Complete Error-Safe Suite)";
     }
 }

@@ -104,6 +104,8 @@ sourceSets {
             include 'adris/altoclef/commands/GamerCommand.java'
             include 'adris/altoclef/commands/MarvionCommand.java'
             include 'adris/altoclef/commands/HeroCommand.java'
+            include 'adris/altoclef/commands/PunkCommand.java'
+            include 'adris/altoclef/commands/KillCommand.java'
             include 'adris/altoclef/commands/GetCommand.java'
             include 'adris/altoclef/commands/GotoCommand.java'
             include 'adris/altoclef/commands/PauseCommand.java'
@@ -138,12 +140,15 @@ sourceSets {
             include 'adris/altoclef/tasks/resources/GetItemTask.java'
             include 'adris/altoclef/tasks/movement/GotoTask.java'
             include 'adris/altoclef/tasks/entity/HeroTask.java'
+            include 'adris/altoclef/tasks/entity/KillTargetTask.java'
             include 'adris/altoclef/tasks/speedrun/BeatMinecraftConfig.java'
             include 'adris/altoclef/tasks/speedrun/BeatMinecraftTask.java'
             include 'adris/altoclef/tasks/speedrun/MarvionBeatMinecraftTask.java'
             include 'adris/altoclef/tasks/container/CraftInTableTask.java'
             include 'adris/altoclef/tasks/container/SmeltInFurnaceTask.java'
             include 'adris/altoclef/control/InventoryManager.java'
+            include 'adris/altoclef/control/RenderDistanceManager.java'
+            include 'adris/altoclef/control/WorldMemoryTracker.java'
         }
     }
 }

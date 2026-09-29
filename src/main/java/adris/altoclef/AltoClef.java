@@ -19,6 +19,7 @@ import adris.altoclef.ui.MessagePriority;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import adris.altoclef.control.InventoryManager;
+import adris.altoclef.control.RenderDistanceManager;
 import net.fabricmc.api.ModInitializer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -120,6 +121,34 @@ public class AltoClef implements ModInitializer {
                     Blocks.BIRCH_PLANKS.asItem(),
                     Blocks.SPRUCE_PLANKS.asItem()
             ));
+
+            // Prevent Baritone from ever breaking harmless grass or flowers during pathing
+            s.blocksToDisallowBreaking.value = new ArrayList<>(Arrays.asList(
+                    Blocks.SHORT_GRASS,
+                    Blocks.TALL_GRASS,
+                    Blocks.FERN,
+                    Blocks.LARGE_FERN,
+                    Blocks.DEAD_BUSH,
+                    Blocks.DANDELION,
+                    Blocks.POPPY,
+                    Blocks.BLUE_ORCHID,
+                    Blocks.ALLIUM,
+                    Blocks.AZURE_BLUET,
+                    Blocks.RED_TULIP,
+                    Blocks.ORANGE_TULIP,
+                    Blocks.WHITE_TULIP,
+                    Blocks.PINK_TULIP,
+                    Blocks.OXEYE_DAISY,
+                    Blocks.CORNFLOWER,
+                    Blocks.LILY_OF_THE_VALLEY,
+                    Blocks.WITHER_ROSE,
+                    Blocks.TORCHFLOWER,
+                    Blocks.SUNFLOWER,
+                    Blocks.LILAC,
+                    Blocks.ROSE_BUSH,
+                    Blocks.PEONY,
+                    Blocks.PITCHER_PLANT
+            ));
         } catch (Throwable ignored) {
         }
 
@@ -170,6 +199,9 @@ public class AltoClef implements ModInitializer {
 
         // Run automatic inventory management (armor, tools, hotbar throwaways, shields)
         inventoryManager.tick(this);
+
+        // Tick dynamic render distance manager (auto-reverting search boosts)
+        RenderDistanceManager.tick(Minecraft.getInstance());
 
         if (settings != null && settings.isLegitMovement() && inGame()) {
             tickLegitMovement();

@@ -7,6 +7,7 @@ import adris.altoclef.tasksystem.TaskRunner;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.DeathScreen;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
 
 public class DeathMenuChain extends TaskChain {
 
@@ -44,7 +45,10 @@ public class DeathMenuChain extends TaskChain {
         if (!handlingDeath) {
             handlingDeath = true;
             deathScreenSeen = System.currentTimeMillis();
-            Debug.logWarning("Player died! Handling auto-respawn and recovering tasks...");
+            BlockPos deathPos = player.blockPosition();
+            String dim = mc.level != null ? mc.level.dimension().toString().toLowerCase() : "overworld";
+            adris.altoclef.control.WorldMemoryTracker.getInstance().recordDeath(deathPos, dim);
+            Debug.logWarning("Player died at " + deathPos.toShortString() + " (" + dim + ")! Recorded death drop memory for recovery.");
         }
 
         // Wait ~500ms on death screen before respawning for server sync
@@ -73,7 +77,7 @@ public class DeathMenuChain extends TaskChain {
 
     @Override
     public boolean isActive() {
-        return handlingDeath;
+        return true;
     }
 
     @Override
