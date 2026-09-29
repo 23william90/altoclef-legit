@@ -1,6 +1,7 @@
 package adris.altoclef.tasks.entity;
 
 import adris.altoclef.AltoClef;
+import adris.altoclef.chains.MobDefenseChain;
 import adris.altoclef.control.InventoryManager;
 import adris.altoclef.control.RenderDistanceManager;
 import adris.altoclef.tasksystem.Task;
@@ -30,6 +31,9 @@ public class KillTargetTask extends Task {
     private long lastAttackTime = 0;
     private boolean shielding = false;
     private boolean approaching = false;
+    private boolean isJumpingForCrit = false;
+    private long critJumpStartTime = 0;
+    private long postHitBackoffTimer = 0;
 
     public KillTargetTask(String targetQuery) {
         this.targetQuery = targetQuery.trim().toLowerCase();
@@ -104,18 +108,61 @@ public class KillTargetTask extends Task {
             }
         }
 
-        // 4. Strike target with timed attacks and jump-crits
+        // 4. Strike target with timed attacks, weapon cooldowns, spacing, and critical descent jumps
         if (dist <= 3.8) {
-            smoothLookAt(player, currentTarget.getEyePosition(), 45.0f);
-            if (player.getAttackStrengthScale(0.0f) >= 0.85f && System.currentTimeMillis() - lastAttackTime > 400) {
-                // Critical hit: jump if on ground
-                if (player.onGround() && !player.isInWater()) {
-                    player.jumpFromGround();
-                }
+            smoothLookAt(player, currentTarget.getEyePosition(), 50.0f);
+            ItemStack weapon = player.getMainHandItem();
+            long cooldownMs = MobDefenseChain.getWeaponAttackCooldownMs(weapon);
+            boolean cooldownReady = player.getAttackStrengthScale(0.0f) >= 0.92f && (System.currentTimeMillis() - lastAttackTime >= cooldownMs);
 
-                mc.gameMode.attack(player, currentTarget);
-                player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
-                lastAttackTime = System.currentTimeMillis();
+            // Spacing & hit avoidance: step back after hit or if point-blank
+            boolean isBackpedaling = (System.currentTimeMillis() < postHitBackoffTimer) || (dist < 2.0);
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+                if (isBackpedaling) {
+                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
+                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, true);
+                } else if (dist > 2.8 && cooldownReady) {
+                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
+                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, true);
+                } else {
+                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
+                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
+                }
+            }
+
+            // Crit jump descent state machine
+            if (isJumpingForCrit) {
+                Vec3 vel = player.getDeltaMovement();
+                boolean isDescent = !player.onGround() && vel.y < -0.04;
+                boolean timedOut = System.currentTimeMillis() - critJumpStartTime > 650;
+                boolean landed = player.onGround() && (System.currentTimeMillis() - critJumpStartTime > 200);
+
+                if (isDescent || timedOut || landed) {
+                    if (dist <= 3.8) {
+                        mc.gameMode.attack(player, currentTarget);
+                        player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
+                        lastAttackTime = System.currentTimeMillis();
+                        postHitBackoffTimer = System.currentTimeMillis() + 250;
+                    }
+                    isJumpingForCrit = false;
+                }
+            } else if (cooldownReady) {
+                if (dist <= 3.5) {
+                    var pPos = player.blockPosition();
+                    boolean clearCeiling = mc.level != null && !mc.level.getBlockState(pPos.above(2)).isSolid();
+
+                    if (player.onGround() && !player.isInWater() && clearCeiling) {
+                        player.jumpFromGround();
+                        isJumpingForCrit = true;
+                        critJumpStartTime = System.currentTimeMillis();
+                    } else {
+                        mc.gameMode.attack(player, currentTarget);
+                        player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
+                        lastAttackTime = System.currentTimeMillis();
+                        postHitBackoffTimer = System.currentTimeMillis() + 250;
+                    }
+                }
             }
         }
 
@@ -152,6 +199,11 @@ public class KillTargetTask extends Task {
             }
 
             if (match) {
+                // Must be physically reachable (not trapped behind solid walls or in deep caves)
+                if (living instanceof Monster && !MobDefenseChain.canMobPhysicallyReachPlayer(mc, player, living)) {
+                    continue;
+                }
+
                 double dSq = player.distanceToSqr(living);
                 if (dSq < closestDistSq) {
                     closestDistSq = dSq;
