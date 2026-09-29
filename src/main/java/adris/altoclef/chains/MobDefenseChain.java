@@ -2,11 +2,11 @@ package adris.altoclef.chains;
 
 import adris.altoclef.AltoClef;
 import adris.altoclef.control.InventoryManager;
-import adris.altoclef.tasksystem.TaskChain;
 import adris.altoclef.tasksystem.TaskRunner;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.pathing.goals.GoalNear;
+import baritone.api.utils.Rotation;
 import baritone.api.utils.input.Input;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -29,10 +29,13 @@ import net.minecraft.world.phys.Vec3;
 public class MobDefenseChain extends SingleTaskChain {
 
     private Entity currentThreat = null;
+    private Entity lockedThreat = null;
     private boolean shielding = false;
     private boolean approaching = false;
     private boolean fleeing = false;
+    private boolean isRetreating = false;
     private long lastAttackTime = 0;
+    private long creeperBackoffTimer = 0;
 
     public MobDefenseChain(TaskRunner runner) {
         super(runner);
@@ -40,7 +43,6 @@ public class MobDefenseChain extends SingleTaskChain {
 
     @Override
     public boolean isActive() {
-        // Continuously active to evaluate threats in the world
         return true;
     }
 
@@ -55,6 +57,8 @@ public class MobDefenseChain extends SingleTaskChain {
         if (currentThreat == null) {
             stopShielding();
             stopFleeing();
+            stopApproaching();
+            isRetreating = false;
             return Float.NEGATIVE_INFINITY;
         }
 
@@ -76,9 +80,16 @@ public class MobDefenseChain extends SingleTaskChain {
             return 82.0f;
         }
 
-        // Emergency 3: Low health (< 10 HP / 5 hearts) with hostile nearby -> Must retreat to heal!
+        // Emergency 3: Low health with hostile nearby -> Retreat to heal!
         if (player.getHealth() <= 10.0f && distSq < 144.0) {
+            isRetreating = true;
             return 78.0f;
+        } else if (isRetreating) {
+            if (player.getHealth() >= 14.0f || distSq > 225.0) {
+                isRetreating = false;
+            } else {
+                return 78.0f;
+            }
         }
 
         // Retaliation: Mob attacked us recently
@@ -109,6 +120,7 @@ public class MobDefenseChain extends SingleTaskChain {
             stopApproaching();
             stopFleeing();
             currentThreat = null;
+            lockedThreat = null;
             return;
         }
 
@@ -127,7 +139,7 @@ public class MobDefenseChain extends SingleTaskChain {
         }
 
         // 3. Low Health Strategic Retreat (Give space for FoodChain to eat & heal)
-        if (player.getHealth() <= 10.0f && distSq < 144.0) {
+        if (isRetreating && distSq < 144.0) {
             handleLowHealthRetreat(mc, player, currentThreat);
             return;
         }
@@ -146,7 +158,7 @@ public class MobDefenseChain extends SingleTaskChain {
                 stopFleeing();
                 stopApproaching();
                 ensureShieldEquipped(mc, player);
-                lookAt(player, creeper.getEyePosition());
+                smoothLookAt(player, creeper.getEyePosition(), 45.0f);
                 startShielding();
                 return;
             } else {
@@ -160,28 +172,44 @@ public class MobDefenseChain extends SingleTaskChain {
         // Creeper not swelling yet
         stopShielding();
 
-        if (distSq > 16.0) { // > 4 blocks away
-            if (player.getHealth() > 10.0f) {
-                stopFleeing();
-                equipBestWeapon(player);
-                approachTarget(creeper);
-            } else {
-                fleeFromEntity(mc, player, creeper, 14.0);
-            }
-        } else { // In melee strike reach (<= 4 blocks)
+        // Always face the creeper smoothly (never snap camera 180 degrees away)
+        smoothLookAt(player, creeper.getEyePosition(), 35.0f);
+
+        if (distSq > 11.0) { // > 3.3 blocks away
             stopFleeing();
             equipBestWeapon(player);
-            lookAt(player, creeper.getEyePosition());
+            approachTarget(creeper);
+        } else { // In melee strike reach (<= 3.3 blocks)
+            stopApproaching();
+            equipBestWeapon(player);
 
             // Hit creeper on attack cooldown
             if (player.getAttackStrengthScale(0.0f) >= 0.85f && System.currentTimeMillis() - lastAttackTime > 450) {
                 mc.gameMode.attack(player, creeper);
                 player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
                 lastAttackTime = System.currentTimeMillis();
+                creeperBackoffTimer = System.currentTimeMillis() + 350;
             }
 
-            // Immediately backstep / strafe away to keep the fuse from detonating
-            fleeFromEntity(mc, player, creeper, 6.0);
+            // Immediately backstep while keeping eyes locked on creeper to keep fuse reset
+            if (System.currentTimeMillis() < creeperBackoffTimer) {
+                try {
+                    IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                    if (baritone != null) {
+                        baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
+                        baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, true);
+                    }
+                } catch (Throwable ignored) {
+                }
+            } else {
+                try {
+                    IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                    if (baritone != null) {
+                        baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
         }
     }
 
@@ -190,9 +218,9 @@ public class MobDefenseChain extends SingleTaskChain {
             ensureShieldEquipped(mc, player);
             Entity owner = projectile.getOwner();
             if (owner != null && owner.isAlive()) {
-                lookAt(player, owner.getEyePosition());
+                smoothLookAt(player, owner.getEyePosition(), 45.0f);
             } else {
-                lookAt(player, projectile.position());
+                smoothLookAt(player, projectile.position(), 45.0f);
             }
             startShielding();
         } else {
@@ -212,6 +240,15 @@ public class MobDefenseChain extends SingleTaskChain {
 
     private void handleLowHealthRetreat(Minecraft mc, LocalPlayer player, Entity threat) {
         stopShielding();
+
+        // If hostile is in immediate face (< 2.2 blocks) while retreating, defensive strike to knock them back
+        if (threat.distanceToSqr(player) <= 5.5 && player.getAttackStrengthScale(0.0f) >= 0.75f) {
+            equipBestWeapon(player);
+            smoothLookAt(player, threat.getEyePosition(), 45.0f);
+            mc.gameMode.attack(player, threat);
+            player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
+        }
+
         fleeFromEntity(mc, player, threat, 20.0);
     }
 
@@ -222,7 +259,7 @@ public class MobDefenseChain extends SingleTaskChain {
         if (target instanceof AbstractSkeleton skeleton && distSq < 144.0 && distSq > 16.0) {
             if (hasShield(player)) {
                 ensureShieldEquipped(mc, player);
-                lookAt(player, skeleton.getEyePosition());
+                smoothLookAt(player, skeleton.getEyePosition(), 35.0f);
                 startShielding();
                 approachTarget(target);
                 return;
@@ -231,7 +268,7 @@ public class MobDefenseChain extends SingleTaskChain {
 
         stopShielding();
         equipBestWeapon(player);
-        lookAt(player, target.getEyePosition());
+        smoothLookAt(player, target.getEyePosition(), 35.0f);
 
         // Pursue enemy
         if (distSq > 9.0) {
@@ -267,12 +304,10 @@ public class MobDefenseChain extends SingleTaskChain {
                     baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(fleeTarget, 2));
                 }
 
-                // Sprint forward away from threat
+                // Sprint forward away from threat via Baritone pathing
                 baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
                 baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, true);
                 baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, true);
-
-                lookAt(player, Vec3.atCenterOf(fleeTarget));
             }
         } catch (Throwable ignored) {
         }
@@ -285,6 +320,7 @@ public class MobDefenseChain extends SingleTaskChain {
             IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (baritone != null) {
                 baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
+                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
                 baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, false);
             }
         } catch (Throwable ignored) {
@@ -310,8 +346,13 @@ public class MobDefenseChain extends SingleTaskChain {
         approaching = false;
         try {
             IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
-            if (baritone != null && baritone.getCustomGoalProcess().isActive()) {
-                baritone.getCustomGoalProcess().path();
+            if (baritone != null) {
+                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
+                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
+                baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, false);
+                if (baritone.getCustomGoalProcess().isActive()) {
+                    baritone.getCustomGoalProcess().path();
+                }
             }
         } catch (Throwable ignored) {
         }
@@ -319,7 +360,7 @@ public class MobDefenseChain extends SingleTaskChain {
 
     private void tryAttack(Minecraft mc, LocalPlayer player, Entity target) {
         if (player.getAttackStrengthScale(0.0f) >= 0.85f && System.currentTimeMillis() - lastAttackTime > 400) {
-            lookAt(player, target.getEyePosition());
+            smoothLookAt(player, target.getEyePosition(), 45.0f);
 
             // Jump critical if moving forward on ground
             if (player.onGround() && !player.isInWater()) {
@@ -416,20 +457,77 @@ public class MobDefenseChain extends SingleTaskChain {
         }
     }
 
+    /**
+     * Intelligent multi-mob threat selection with hysteresis and emergency overrides.
+     * Prevents rapid camera oscillation when multiple hostiles surround the player.
+     */
     private Entity findPriorityThreat(Minecraft mc, LocalPlayer player) {
         if (mc.level == null) return null;
 
-        // 0. Did an entity hurt us recently? Retaliate immediately!
-        LivingEntity hurtBy = player.getLastHurtByMob();
-        if (hurtBy != null && hurtBy.isAlive() && hurtBy != player && !hurtBy.isRemoved()) {
-            double d = hurtBy.distanceToSqr(player);
-            if (d < 144.0) {
-                return hurtBy;
+        // 1. TOP EMERGENCY: Swelling or ignited creeper within 10 blocks (takes priority over everything!)
+        for (Entity entity : mc.level.entitiesForRendering()) {
+            if (entity instanceof Creeper creeper && creeper.isAlive() && !creeper.isRemoved()) {
+                if (creeper.distanceToSqr(player) < 100.0 && (creeper.getSwellDir() > 0 || creeper.isIgnited())) {
+                    lockedThreat = creeper;
+                    return creeper;
+                }
             }
         }
 
+        // 2. EMERGENCY: Incoming projectile headed straight for us within 8 blocks
+        for (Entity entity : mc.level.entitiesForRendering()) {
+            if (entity instanceof Projectile projectile && projectile.isAlive() && !projectile.isRemoved()) {
+                double distSq = projectile.distanceToSqr(player);
+                if (distSq < 64.0) {
+                    Vec3 velocity = projectile.getDeltaMovement();
+                    Vec3 toPlayer = player.position().subtract(projectile.position()).normalize();
+                    if (velocity.dot(toPlayer) > 0.4) {
+                        return projectile;
+                    }
+                }
+            }
+        }
+
+        // 3. TARGET STICKINESS: Check if current locked threat is still valid
+        if (lockedThreat != null && lockedThreat.isAlive() && !lockedThreat.isRemoved()) {
+            double currentDistSq = lockedThreat.distanceToSqr(player);
+            // If target is within 14 blocks, stick to it unless another mob is in point-blank melee (< 2.2 blocks)
+            if (currentDistSq < 196.0) {
+                Entity pointBlankThreat = null;
+                for (Entity entity : mc.level.entitiesForRendering()) {
+                    if (entity != lockedThreat && entity instanceof Monster monster && monster.isAlive() && !monster.isRemoved()) {
+                        double dSq = monster.distanceToSqr(player);
+                        if (dSq < 5.0 && currentDistSq > 16.0) { // < 2.2 blocks vs > 4.0 blocks
+                            pointBlankThreat = monster;
+                            break;
+                        }
+                    }
+                }
+
+                if (pointBlankThreat != null) {
+                    lockedThreat = pointBlankThreat;
+                    return lockedThreat;
+                }
+
+                return lockedThreat;
+            }
+        }
+
+        // Current target is invalid, dead, or out of range. Pick the best new threat!
+        lockedThreat = null;
+
+        // 4. Retaliation: if damaged recently by a mob within 12 blocks, target them
+        LivingEntity hurtBy = player.getLastHurtByMob();
+        if (hurtBy != null && hurtBy.isAlive() && hurtBy != player && !hurtBy.isRemoved()) {
+            if (hurtBy.distanceToSqr(player) < 144.0) {
+                lockedThreat = hurtBy;
+                return lockedThreat;
+            }
+        }
+
+        // 5. Intelligent Multi-Mob Scoring
         Entity bestThreat = null;
-        double bestDistSq = Double.MAX_VALUE;
+        double bestScore = -1000.0;
 
         for (Entity entity : mc.level.entitiesForRendering()) {
             if (!entity.isAlive() || entity == player || entity.isRemoved()) continue;
@@ -437,63 +535,81 @@ public class MobDefenseChain extends SingleTaskChain {
             double distSq = entity.distanceToSqr(player);
             if (distSq > 196.0) continue; // max 14 blocks
 
-            // 1. Creeper check (high priority)
+            double dist = Math.sqrt(distSq);
+            double score = 0;
+
             if (entity instanceof Creeper creeper) {
-                if (creeper.getSwellDir() > 0 || creeper.isIgnited()) {
-                    return creeper; // immediate emergency!
+                score = 90.0 - dist * 3.5;
+            } else if (entity instanceof Enderman enderman) {
+                if (enderman.isCreepy() || enderman.hasBeenStaredAt()) {
+                    score = 80.0 - dist * 3.0;
                 }
-                if (distSq < 64.0 && distSq < bestDistSq) {
-                    bestThreat = creeper;
-                    bestDistSq = distSq;
-                }
-                continue;
+            } else if (entity instanceof AbstractSkeleton) {
+                score = 75.0 - dist * 2.5;
+            } else if (entity instanceof Monster) {
+                score = 70.0 - dist * 3.0;
             }
 
-            // 2. Incoming projectile check
-            if (entity instanceof Projectile projectile) {
-                Vec3 velocity = projectile.getDeltaMovement();
-                Vec3 toPlayer = player.position().subtract(projectile.position()).normalize();
-                if (velocity.dot(toPlayer) > 0.4 && distSq < 100.0) {
-                    return projectile;
-                }
-                continue;
-            }
-
-            // 3. Aggressive Enderman check
-            if (entity instanceof Enderman enderman) {
-                if ((enderman.isCreepy() || enderman.hasBeenStaredAt()) && distSq < 144.0) {
-                    if (distSq < bestDistSq) {
-                        bestThreat = enderman;
-                        bestDistSq = distSq;
-                    }
-                }
-                continue;
-            }
-
-            // 4. Hostile Monsters (Zombies, Skeletons, Spiders, Slimes, Phantoms, Piglins, etc.)
-            if (entity instanceof Monster monster) {
-                if (distSq < 100.0 && distSq < bestDistSq) {
-                    bestThreat = monster;
-                    bestDistSq = distSq;
-                }
+            if (score > bestScore) {
+                bestScore = score;
+                bestThreat = entity;
             }
         }
 
-        return bestThreat;
+        lockedThreat = bestThreat;
+        return lockedThreat;
     }
 
-    private void lookAt(LocalPlayer player, Vec3 target) {
-        Vec3 diff = target.subtract(player.getEyePosition());
+    /**
+     * Smoothly rotates the camera towards the target position without instantaneous snapping or jitter.
+     * Synchronizes with Baritone's LookBehavior to prevent rotational conflicts.
+     */
+    private void smoothLookAt(LocalPlayer player, Vec3 targetPos, float maxTurnPerTick) {
+        Vec3 eyes = player.getEyePosition();
+        Vec3 diff = targetPos.subtract(eyes);
         double diffX = diff.x;
         double diffY = diff.y;
         double diffZ = diff.z;
         double diffXZ = Math.sqrt(diffX * diffX + diffZ * diffZ);
 
-        float yaw = (float) Math.toDegrees(Math.atan2(-diffX, diffZ));
-        float pitch = (float) Math.toDegrees(-Math.atan2(diffY, diffXZ));
+        float targetYaw = (float) Math.toDegrees(Math.atan2(-diffX, diffZ));
+        float targetPitch = (float) Math.toDegrees(-Math.atan2(diffY, diffXZ));
 
-        player.setYRot(yaw);
-        player.setXRot(pitch);
+        float currentYaw = player.getYRot();
+        float currentPitch = player.getXRot();
+
+        float deltaYaw = wrapDegrees(targetYaw - currentYaw);
+        float deltaPitch = targetPitch - currentPitch;
+
+        float absYaw = Math.abs(deltaYaw);
+        float absPitch = Math.abs(deltaPitch);
+
+        // Smooth ease-out rotational curve
+        float stepYaw = Math.min(absYaw * 0.40f + 2.5f, maxTurnPerTick);
+        float stepPitch = Math.min(absPitch * 0.40f + 1.8f, maxTurnPerTick * 0.75f);
+
+        float newYaw = absYaw <= stepYaw ? targetYaw : currentYaw + Math.signum(deltaYaw) * stepYaw;
+        float newPitch = absPitch <= stepPitch ? targetPitch : currentPitch + Math.signum(deltaPitch) * stepPitch;
+        newPitch = Math.max(-90.0f, Math.min(90.0f, newPitch));
+
+        player.setYRot(newYaw);
+        player.setXRot(newPitch);
+
+        // Synchronize with Baritone's LookBehavior so Baritone does not fight player rotation
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+                baritone.getLookBehavior().updateTarget(new Rotation(newYaw, newPitch), true);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static float wrapDegrees(float degrees) {
+        float wrapped = degrees % 360.0f;
+        if (wrapped >= 180.0f) wrapped -= 360.0f;
+        if (wrapped < -180.0f) wrapped += 360.0f;
+        return wrapped;
     }
 
     @Override
@@ -501,6 +617,8 @@ public class MobDefenseChain extends SingleTaskChain {
         stopShielding();
         stopApproaching();
         stopFleeing();
+        lockedThreat = null;
+        isRetreating = false;
     }
 
     @Override
@@ -508,6 +626,8 @@ public class MobDefenseChain extends SingleTaskChain {
         stopShielding();
         stopApproaching();
         stopFleeing();
+        lockedThreat = null;
+        isRetreating = false;
     }
 
     @Override

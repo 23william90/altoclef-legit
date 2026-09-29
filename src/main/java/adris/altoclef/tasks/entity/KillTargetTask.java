@@ -6,6 +6,7 @@ import adris.altoclef.tasksystem.Task;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.pathing.goals.GoalNear;
+import baritone.api.utils.Rotation;
 import baritone.api.utils.input.Input;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -71,8 +72,8 @@ public class KillTargetTask extends Task {
         // 1. Equip best weapon
         equipBestWeapon(player);
 
-        // 2. Aim at target eye level
-        lookAt(player, currentTarget.getEyePosition());
+        // 2. Aim at target eye level smoothly
+        smoothLookAt(player, currentTarget.getEyePosition(), 35.0f);
 
         // 3. Shield against ranged or heavy counter attacks if we have shield and cooldown allows
         if (dist > 4.0 && dist < 16.0 && hasShield(player)) {
@@ -235,18 +236,50 @@ public class KillTargetTask extends Task {
         }
     }
 
-    private void lookAt(LocalPlayer player, Vec3 target) {
-        Vec3 diff = target.subtract(player.getEyePosition());
+    private void smoothLookAt(LocalPlayer player, Vec3 targetPos, float maxTurnPerTick) {
+        Vec3 eyes = player.getEyePosition();
+        Vec3 diff = targetPos.subtract(eyes);
         double diffX = diff.x;
         double diffY = diff.y;
         double diffZ = diff.z;
         double diffXZ = Math.sqrt(diffX * diffX + diffZ * diffZ);
 
-        float yaw = (float) Math.toDegrees(Math.atan2(-diffX, diffZ));
-        float pitch = (float) Math.toDegrees(-Math.atan2(diffY, diffXZ));
+        float targetYaw = (float) Math.toDegrees(Math.atan2(-diffX, diffZ));
+        float targetPitch = (float) Math.toDegrees(-Math.atan2(diffY, diffXZ));
 
-        player.setYRot(yaw);
-        player.setXRot(pitch);
+        float currentYaw = player.getYRot();
+        float currentPitch = player.getXRot();
+
+        float deltaYaw = wrapDegrees(targetYaw - currentYaw);
+        float deltaPitch = targetPitch - currentPitch;
+
+        float absYaw = Math.abs(deltaYaw);
+        float absPitch = Math.abs(deltaPitch);
+
+        float stepYaw = Math.min(absYaw * 0.40f + 2.5f, maxTurnPerTick);
+        float stepPitch = Math.min(absPitch * 0.40f + 1.8f, maxTurnPerTick * 0.75f);
+
+        float newYaw = absYaw <= stepYaw ? targetYaw : currentYaw + Math.signum(deltaYaw) * stepYaw;
+        float newPitch = absPitch <= stepPitch ? targetPitch : currentPitch + Math.signum(deltaPitch) * stepPitch;
+        newPitch = Math.max(-90.0f, Math.min(90.0f, newPitch));
+
+        player.setYRot(newYaw);
+        player.setXRot(newPitch);
+
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+                baritone.getLookBehavior().updateTarget(new Rotation(newYaw, newPitch), true);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static float wrapDegrees(float degrees) {
+        float wrapped = degrees % 360.0f;
+        if (wrapped >= 180.0f) wrapped -= 360.0f;
+        if (wrapped < -180.0f) wrapped += 360.0f;
+        return wrapped;
     }
 
     @Override
