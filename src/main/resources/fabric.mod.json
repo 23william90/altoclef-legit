@@ -3,16 +3,16 @@
   "id": "altoclef",
   "version": "${version}",
   "name": "Alto Clef",
-  "description": "Plays Block Game",
+  "description": "Plays Block Game - Modernized Legit Edition",
   "authors": [
     "TacoTechnica",
     "James Green",
     "Marvion Kirito",
-    "MiranCZ"
+    "MiranCZ",
+    "23william90"
   ],
   "contact": {
-    "homepage": "https://github.com/MiranCZ/altoclef",
-    "sources": "https://github.com/MiranCZ/altoclef"
+    "sources": "https://github.com/23william90/altoclef-legit"
   },
   "license": "MIT",
   "icon": "assets/altoclef/icon.png",
@@ -28,6 +28,6 @@
   "depends": {
     "fabricloader": ">=0.19.0",
     "minecraft": ">=26.3",
-    "java": ">=21"
+    "java": ">=25"
   }
 }

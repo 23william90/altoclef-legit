@@ -1,9 +1,10 @@
 package adris.altoclef.mixins;
 
+import adris.altoclef.AltoClef;
 import adris.altoclef.Debug;
 import adris.altoclef.eventbus.EventBus;
 import adris.altoclef.eventbus.events.TitleScreenEntryEvent;
-import net.minecraft.client.gui.screen.TitleScreen;
+import net.minecraft.client.gui.screens.TitleScreen;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -22,7 +23,9 @@ public class EntryMixin {
             _initialized = true;
             Debug.logMessage("Global Init");
             EventBus.publish(new TitleScreenEntryEvent());
+            if (AltoClef.getInstance() != null) {
+                AltoClef.getInstance().ensureInitialized();
+            }
         }
     }
 }
-

@@ -1,8 +1,6 @@
 package adris.altoclef;
 
 import adris.altoclef.commands.*;
-import adris.altoclef.commands.random.ScanCommand;
-import adris.altoclef.commands.random.DummyTaskCommand;
 import adris.altoclef.commandsystem.exception.CommandException;
 
 /**
@@ -11,36 +9,19 @@ import adris.altoclef.commandsystem.exception.CommandException;
 public class AltoClefCommands {
 
     public static void init() throws CommandException {
-        // List commands here
         AltoClef.getCommandExecutor().registerNewCommand(
                 new HelpCommand(),
+                new LegitMovementCommand(),
+                new GamerCommand(),
                 new GetCommand(),
-                new ListCommand(),
-                new EquipCommand(),
-                new DepositCommand(),
-                new StashCommand(),
                 new GotoCommand(),
-                new IdleCommand(),
-                new HeroCommand(),
-                new CoordsCommand(),
-                new StatusCommand(),
-                new InventoryCommand(),
-                new LocateStructureCommand(),
                 new StopCommand(),
+                new StatusCommand(),
+                new CoordsCommand(),
+                new ReloadSettingsCommand(),
                 new PauseCommand(),
                 new UnPauseCommand(),
-                new SetGammaCommand(),
-                new TestCommand(),
-                new FoodCommand(),
-                new MeatCommand(),
-                new ReloadSettingsCommand(),
-                new GamerCommand(),
-                new MarvionCommand(),
-                new DummyTaskCommand(),
-                new FollowCommand(),
-                new ScanCommand(),
-                new GiveCommand(),
-                new LegitMovementCommand()
+                new TestCommand()
         );
     }
 }

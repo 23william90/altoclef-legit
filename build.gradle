@@ -1,18 +1,31 @@
 plugins {
-    id 'fabric-loom' version '1.7.3'
+    id 'java'
     id 'maven-publish'
     id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
-sourceCompatibility = JavaVersion.VERSION_21
-targetCompatibility = JavaVersion.VERSION_21
+apply plugin: "xyz.wagyourtail.unimined"
 
-archivesBaseName = project.archives_base_name
+base {
+    archivesName = project.archives_base_name
+}
+
 version = project.mod_version
 group = project.maven_group
 
+java {
+    sourceCompatibility = JavaVersion.toVersion(25)
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(25))
+    }
+}
+
 repositories {
     mavenCentral()
+    maven {
+        name = 'spongepowered-repo'
+        url = 'https://repo.spongepowered.org/repository/maven-public/'
+    }
     maven {
         name = "Fabric"
         url = "https://maven.fabricmc.net/"
@@ -22,26 +35,17 @@ repositories {
         url = "https://jitpack.io"
     }
     maven {
-        name = "MiranCZRepo"
-        url = "https://mirancz.github.io/maven/"
-        artifactUrls("https://mirancz.github.io/maven/cabaletta/baritone-unoptimized/1.21.1")
-    }
-    maven {
         name = 'babbaj-repo'
         url = 'https://babbaj.github.io/maven/'
     }
     flatDir {
-        dirs 'baritone-26.3/dist', 'baritone-26.3/fabric/build/libs', 'libs'
+        dirs 'baritone-26.3/fabric/build/libs', 'baritone-26.3/dist', 'libs'
     }
 }
 
 dependencies {
-    minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.minecraft_version}+build.1:v2"
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-
-    include(implementation(annotationProcessor("io.github.llamalad7:mixinextras-fabric:0.3.5")))
-    modImplementation "net.fabricmc.fabric-api:fabric-api:0.115.0+${project.minecraft_version}"
+    compileOnly "org.spongepowered:mixin:0.8.7"
+    compileOnly "org.ow2.asm:asm:9.7"
 
     implementation 'com.fasterxml.jackson.core:jackson-core:2.16.0'
     implementation 'com.fasterxml.jackson.core:jackson-annotations:2.16.0'
@@ -53,10 +57,70 @@ dependencies {
     implementation 'dev.babbaj:nether-pathfinder:1.6'
     shadow 'dev.babbaj:nether-pathfinder:1.6'
 
-    // Baritone 26.3 dependency from our modernized fork:
-    // https://github.com/23william90/baritone-26.3
-    modImplementation "baritone:baritone-fabric:${project.minecraft_version}-SNAPSHOT"
-    include "baritone:baritone-fabric:${project.minecraft_version}-SNAPSHOT"
+    compileOnly files('baritone-26.3/fabric/build/libs/baritone-fabric-26.3-SNAPSHOT-dev-shadow.jar')
+}
+
+unimined.minecraft(sourceSets.main, true) {
+    version "26.3"
+
+    mappings {
+        mojmap()
+    }
+}
+
+unimined.minecraft {
+    fabric {
+        loader "0.19.5"
+    }
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src/main/java']
+            include 'adris/altoclef/AltoClef.java'
+            include 'adris/altoclef/AltoClefCommands.java'
+            include 'adris/altoclef/Debug.java'
+            include 'adris/altoclef/Settings.java'
+            include 'adris/altoclef/commandsystem/ArgParser.java'
+            include 'adris/altoclef/commandsystem/Command.java'
+            include 'adris/altoclef/commandsystem/CommandExecutor.java'
+            include 'adris/altoclef/commandsystem/StringReader.java'
+            include 'adris/altoclef/commandsystem/TabCompleter.java'
+            include 'adris/altoclef/commandsystem/args/Arg.java'
+            include 'adris/altoclef/commandsystem/args/DoubleArg.java'
+            include 'adris/altoclef/commandsystem/args/EnumArg.java'
+            include 'adris/altoclef/commandsystem/args/FloatArg.java'
+            include 'adris/altoclef/commandsystem/args/IntArg.java'
+            include 'adris/altoclef/commandsystem/args/ListArg.java'
+            include 'adris/altoclef/commandsystem/args/StringArg.java'
+            include 'adris/altoclef/commandsystem/exception/**'
+            include 'adris/altoclef/commands/HelpCommand.java'
+            include 'adris/altoclef/commands/LegitMovementCommand.java'
+            include 'adris/altoclef/commands/StopCommand.java'
+            include 'adris/altoclef/commands/ReloadSettingsCommand.java'
+            include 'adris/altoclef/commands/StatusCommand.java'
+            include 'adris/altoclef/commands/CoordsCommand.java'
+            include 'adris/altoclef/commands/GamerCommand.java'
+            include 'adris/altoclef/commands/GetCommand.java'
+            include 'adris/altoclef/commands/GotoCommand.java'
+            include 'adris/altoclef/commands/PauseCommand.java'
+            include 'adris/altoclef/commands/UnPauseCommand.java'
+            include 'adris/altoclef/commands/TestCommand.java'
+            include 'adris/altoclef/eventbus/EventBus.java'
+            include 'adris/altoclef/eventbus/Subscription.java'
+            include 'adris/altoclef/eventbus/events/SendChatEvent.java'
+            include 'adris/altoclef/eventbus/events/TitleScreenEntryEvent.java'
+            include 'adris/altoclef/mixins/ChatInputMixin.java'
+            include 'adris/altoclef/mixins/EntryMixin.java'
+            include 'adris/altoclef/ui/MessagePriority.java'
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.release = 25
 }
 
 processResources {
@@ -67,16 +131,17 @@ processResources {
     }
 }
 
-tasks.withType(JavaCompile).configureEach {
-    options.release = 21
-    options.encoding = "UTF-8"
-}
-
 shadowJar {
     configurations = [project.configurations.shadow]
+    archiveClassifier.set "dev-shadow"
 }
 
 remapJar {
+    inputFile.set shadowJar.archiveFile
     dependsOn shadowJar
-    inputFile.set(shadowJar.archiveFile)
+    archiveClassifier.set null
+}
+
+jar {
+    archiveClassifier.set "dev"
 }

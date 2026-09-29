@@ -1,49 +1,30 @@
 package adris.altoclef.commands;
 
 import adris.altoclef.AltoClef;
-import adris.altoclef.TaskCatalogue;
-import adris.altoclef.commandsystem.*;
-import adris.altoclef.commandsystem.args.ItemTargetArg;
-import adris.altoclef.commandsystem.args.ListArg;
+import adris.altoclef.commandsystem.ArgParser;
+import adris.altoclef.commandsystem.Command;
+import adris.altoclef.commandsystem.args.StringArg;
 import adris.altoclef.commandsystem.exception.CommandException;
-import adris.altoclef.tasksystem.Task;
-import adris.altoclef.util.ItemTarget;
-import net.minecraft.item.ItemStack;
-
-import java.util.List;
+import baritone.api.BaritoneAPI;
+import baritone.api.IBaritone;
 
 public class GetCommand extends Command {
 
     public GetCommand() throws CommandException {
-        super("get", "Get an item/resource",
-                new ListArg<>(new ItemTargetArg("stack"), "items")
-        );
-    }
-
-
-    private void getItems(AltoClef mod, List<ItemTarget> items) {
-        Task targetTask;
-        if (items == null || items.isEmpty()) {
-            mod.log("You must specify at least one item!");
-            finish();
-            return;
-        }
-        if (items.size() == 1) {
-            targetTask = TaskCatalogue.getItemTask(items.getFirst());
-        } else {
-            targetTask = TaskCatalogue.getSquashedItemTask(items.toArray(new ItemTarget[0]));
-        }
-        if (targetTask != null) {
-            mod.runUserTask(targetTask, this::finish);
-        } else {
-            finish();
-        }
+        super("get", "Get an item or resource", new StringArg("item"));
     }
 
     @Override
     protected void call(AltoClef mod, ArgParser parser) throws CommandException {
-        List<ItemTarget> items = parser.get(List.class);
-
-        getItems(mod, items);
+        String item = parser.get(String.class);
+        mod.log("Getting item/resource: " + item);
+        try {
+            IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (primary != null) {
+                primary.getCommandManager().execute("mine " + item);
+            }
+        } catch (Throwable ignored) {
+        }
+        finish();
     }
 }
