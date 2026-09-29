@@ -41,6 +41,7 @@ public class InventoryManager {
             ensureWeaponOnHotbar(mc, player);
             ensurePickaxeOnHotbar(mc, player);
             ensureFoodOnHotbar(mc, player);
+            ensureCraftingTableOnHotbar(mc, player);
 
             // Automated 2x2 Crafting for basic materials (wood -> planks -> sticks & crafting table)
             autoCraftBasicMaterials(mc, player);
@@ -305,6 +306,28 @@ public class InventoryManager {
             ItemStack stack = menu.getSlot(i).getItem();
             if (!stack.isEmpty() && isEdible(stack)) {
                 swapToHotbar(mc, player, i, 8);
+                return;
+            }
+        }
+    }
+
+    private void ensureCraftingTableOnHotbar(Minecraft mc, LocalPlayer player) {
+        InventoryMenu menu = player.inventoryMenu;
+        if (menu == null) return;
+
+        // Check if hotbar already has a crafting table
+        for (int i = InventoryMenu.USE_ROW_SLOT_START; i < InventoryMenu.USE_ROW_SLOT_END; i++) {
+            ItemStack stack = menu.getSlot(i).getItem();
+            if (!stack.isEmpty() && stack.getItem().toString().toLowerCase().contains("crafting_table")) {
+                return;
+            }
+        }
+
+        // Find crafting table in main inventory and swap to hotbar slot 2
+        for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.INV_SLOT_END; i++) {
+            ItemStack stack = menu.getSlot(i).getItem();
+            if (!stack.isEmpty() && stack.getItem().toString().toLowerCase().contains("crafting_table")) {
+                swapToHotbar(mc, player, i, 2);
                 return;
             }
         }
