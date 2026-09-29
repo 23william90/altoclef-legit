@@ -1,6 +1,7 @@
 package adris.altoclef.tasks.entity;
 
 import adris.altoclef.AltoClef;
+import adris.altoclef.control.RenderDistanceManager;
 import adris.altoclef.tasksystem.Task;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
@@ -66,6 +67,7 @@ public class HeroTask extends Task {
         }
 
         if (targetMob != null) {
+            RenderDistanceManager.revert(mc);
             setDebugState("Hunting: " + targetMob.getType().getDescription().getString() + " (" + String.format("%.1f", nearestMobDist) + "m)");
 
             // Move towards mob
@@ -98,12 +100,15 @@ public class HeroTask extends Task {
             return null;
         }
 
+        // Boost render distance while searching for hostile mobs
+        RenderDistanceManager.requestSearchBoost(mc, 18, 60);
         setDebugState("Searching for hostile mobs in area...");
         return null;
     }
 
     @Override
     protected void onStop(Task interruptTask) {
+        RenderDistanceManager.revert(Minecraft.getInstance());
         IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
         if (primary != null) {
             primary.getCustomGoalProcess().path();

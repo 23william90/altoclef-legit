@@ -50,14 +50,9 @@ public class GotoTask extends Task {
                 if (!primary.getPathingBehavior().isPathing() && !primary.getCustomGoalProcess().isActive()) {
                     if (goal != null && mc.player != null && goal.isInGoal(mc.player.getBlockX(), mc.player.getBlockY(), mc.player.getBlockZ())) {
                         finished = true;
-                    } else if (System.currentTimeMillis() - lastResumeTime > 1500) {
+                    } else if (System.currentTimeMillis() - lastResumeTime > 1000) {
                         lastResumeTime = System.currentTimeMillis();
-                        failCount++;
-                        if (failCount > 6) {
-                            finished = true;
-                        } else {
-                            primary.getCommandManager().execute("goto " + destination);
-                        }
+                        primary.getCommandManager().execute("goto " + destination);
                     }
                 } else {
                     failCount = 0;
@@ -70,12 +65,14 @@ public class GotoTask extends Task {
 
     @Override
     protected void onStop(Task interruptTask) {
-        try {
-            IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
-            if (primary != null) {
-                primary.getPathingBehavior().cancelEverything();
+        if (interruptTask == null) {
+            try {
+                IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
+                if (primary != null) {
+                    primary.getPathingBehavior().cancelEverything();
+                }
+            } catch (Throwable ignored) {
             }
-        } catch (Throwable ignored) {
         }
     }
 

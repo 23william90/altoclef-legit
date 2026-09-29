@@ -2,18 +2,24 @@ package adris.altoclef.tasks.construction;
 
 import adris.altoclef.AltoClef;
 import adris.altoclef.control.InventoryManager;
+import adris.altoclef.control.RenderDistanceManager;
+import adris.altoclef.control.WorldMemoryTracker;
 import adris.altoclef.tasksystem.Task;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
+import baritone.api.pathing.goals.GoalNear;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -248,14 +254,69 @@ public class MineBlockTask extends Task {
 
         if (current >= targetCount) {
             finished = true;
+            RenderDistanceManager.revert(mc);
             onStop(null);
             return null;
+        }
+
+        // Chest memory scanning: record nearby chests
+        if (mc.level != null && mc.player.tickCount % 40 == 0) {
+            BlockPos pPos = mc.player.blockPosition();
+            for (int x = -5; x <= 5; x++) {
+                for (int y = -2; y <= 3; y++) {
+                    for (int z = -5; z <= 5; z++) {
+                        BlockPos checkPos = pPos.offset(x, y, z);
+                        if (mc.level.getBlockState(checkPos).is(Blocks.CHEST)) {
+                            WorldMemoryTracker.getInstance().recordChest(checkPos);
+                        }
+                    }
+                }
+            }
+        }
+
+        IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
+
+        // 1. RECOVER DEATH DROPS: Check if player recently died and has recoverable dropped items
+        BlockPos deathDrop = WorldMemoryTracker.getInstance().getRecoverableDeathDrop(mc, mc.player, 160.0);
+        if (deathDrop != null) {
+            if (primary != null) {
+                if (primary.getMineProcess().isActive()) {
+                    primary.getMineProcess().cancel();
+                }
+                primary.getCustomGoalProcess().setGoalAndPath(new GoalNear(deathDrop, 1));
+            }
+            setDebugState("Recovering death drops at " + deathDrop.toShortString());
+            RenderDistanceManager.revert(mc);
+            return null;
+        }
+
+        // 2. SEARCH FOR DROPPED ITEMS: Check for ground drops before mining blocks!
+        ItemEntity bestDrop = WorldMemoryTracker.getInstance().findBestDroppedItem(mc, mc.player, resourceName, blockNames);
+        if (bestDrop != null) {
+            if (primary != null) {
+                if (primary.getMineProcess().isActive()) {
+                    primary.getMineProcess().cancel();
+                }
+                primary.getCustomGoalProcess().setGoalAndPath(new GoalNear(bestDrop.blockPosition(), 0));
+            }
+            setDebugState("Collecting dropped " + resourceName + " (" + (int) mc.player.distanceTo(bestDrop) + "m away)");
+            RenderDistanceManager.revert(mc);
+            return null;
+        }
+
+        // 3. MINING BLOCKS & DYNAMIC RENDER DISTANCE
+        boolean isMining = primary != null && (primary.getMineProcess().isActive() || primary.getPathingBehavior().isPathing());
+        if (isMining) {
+            // Actively mining / traveling to a discovered block -> Keep render distance low to save CPU/memory
+            RenderDistanceManager.revert(mc);
+        } else {
+            // Baritone is searching for blocks / idle -> Temporarily boost render distance to locate blocks/drops
+            RenderDistanceManager.requestSearchBoost(mc, 16, 40);
         }
 
         if (cooldown-- <= 0) {
             cooldown = 20; // Check every 1 second
             try {
-                IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
                 if (primary != null && !primary.getMineProcess().isActive() && !primary.getPathingBehavior().isPathing()) {
                     startMining();
                 }
@@ -268,6 +329,8 @@ public class MineBlockTask extends Task {
 
     @Override
     protected void onStop(Task interruptTask) {
+        Minecraft mc = Minecraft.getInstance();
+        RenderDistanceManager.revert(mc);
         try {
             IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (primary != null) {

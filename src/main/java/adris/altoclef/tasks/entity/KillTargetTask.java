@@ -2,6 +2,7 @@ package adris.altoclef.tasks.entity;
 
 import adris.altoclef.AltoClef;
 import adris.altoclef.control.InventoryManager;
+import adris.altoclef.control.RenderDistanceManager;
 import adris.altoclef.tasksystem.Task;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
@@ -52,6 +53,7 @@ public class KillTargetTask extends Task {
         // If target is dead or despawned, finish or find next
         if (currentTarget != null && (!currentTarget.isAlive() || currentTarget.isRemoved())) {
             AltoClef.getInstance().log("Target defeated: " + targetQuery);
+            RenderDistanceManager.revert(mc);
             stopShielding();
             finished = true;
             return null;
@@ -61,11 +63,14 @@ public class KillTargetTask extends Task {
         if (currentTarget == null || !currentTarget.isAlive()) {
             currentTarget = findTarget(mc, player);
             if (currentTarget == null) {
+                // Boost render distance while searching for target
+                RenderDistanceManager.requestSearchBoost(mc, 20, 60);
                 setDebugState("Searching for target: " + targetQuery + "...");
                 return null;
             }
         }
 
+        RenderDistanceManager.revert(mc);
         double distSq = player.distanceToSqr(currentTarget);
         double dist = Math.sqrt(distSq);
 
@@ -282,6 +287,7 @@ public class KillTargetTask extends Task {
 
     @Override
     protected void onStop(Task interruptTask) {
+        RenderDistanceManager.revert(Minecraft.getInstance());
         stopShielding();
         stopApproaching();
     }

@@ -19,6 +19,7 @@ import adris.altoclef.ui.MessagePriority;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import adris.altoclef.control.InventoryManager;
+import adris.altoclef.control.RenderDistanceManager;
 import net.fabricmc.api.ModInitializer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -198,6 +199,9 @@ public class AltoClef implements ModInitializer {
 
         // Run automatic inventory management (armor, tools, hotbar throwaways, shields)
         inventoryManager.tick(this);
+
+        // Tick dynamic render distance manager (auto-reverting search boosts)
+        RenderDistanceManager.tick(Minecraft.getInstance());
 
         if (settings != null && settings.isLegitMovement() && inGame()) {
             tickLegitMovement();

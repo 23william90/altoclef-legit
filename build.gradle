@@ -147,6 +147,8 @@ sourceSets {
             include 'adris/altoclef/tasks/container/CraftInTableTask.java'
             include 'adris/altoclef/tasks/container/SmeltInFurnaceTask.java'
             include 'adris/altoclef/control/InventoryManager.java'
+            include 'adris/altoclef/control/RenderDistanceManager.java'
+            include 'adris/altoclef/control/WorldMemoryTracker.java'
         }
     }
 }
