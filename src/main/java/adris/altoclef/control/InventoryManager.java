@@ -41,8 +41,118 @@ public class InventoryManager {
             ensureWeaponOnHotbar(mc, player);
             ensurePickaxeOnHotbar(mc, player);
             ensureFoodOnHotbar(mc, player);
+
+            // Automated 2x2 Crafting for basic materials (wood -> planks -> sticks & crafting table)
+            autoCraftBasicMaterials(mc, player);
         } catch (Throwable ignored) {
         }
+    }
+
+    private void autoCraftBasicMaterials(Minecraft mc, LocalPlayer player) {
+        InventoryMenu menu = player.inventoryMenu;
+        if (menu == null || !menu.getCarried().isEmpty()) return;
+
+        int planks = countItems(player, "planks");
+        int logs = countItems(player, "log");
+        int sticks = countItems(player, "stick");
+        int tables = countItems(player, "crafting_table");
+
+        // 1. If we have logs and < 8 planks, craft planks!
+        if (planks < 8 && logs > 0) {
+            int logSlot = findSlot(menu, "log");
+            if (logSlot != -1) {
+                craft2x2Planks(mc, player, logSlot);
+                return;
+            }
+        }
+
+        // 2. If we have planks and < 4 sticks, craft sticks!
+        if (sticks < 4 && planks >= 2) {
+            int plankSlot = findSlot(menu, "planks");
+            if (plankSlot != -1) {
+                craft2x2Sticks(mc, player, plankSlot);
+                return;
+            }
+        }
+
+        // 3. If we have planks and 0 crafting tables, craft a crafting table!
+        if (tables < 1 && planks >= 4) {
+            int plankSlot = findSlot(menu, "planks");
+            if (plankSlot != -1 && menu.getSlot(plankSlot).getItem().getCount() >= 4) {
+                craft2x2CraftingTable(mc, player, plankSlot);
+            }
+        }
+    }
+
+    public void craft2x2Planks(Minecraft mc, LocalPlayer player, int logSlot) {
+        mc.gameMode.handleContainerInput(0, logSlot, 0, ContainerInput.PICKUP, player);
+        mc.gameMode.handleContainerInput(0, 1, 1, ContainerInput.PICKUP, player); // 1 log in slot 1
+        mc.gameMode.handleContainerInput(0, logSlot, 0, ContainerInput.PICKUP, player); // return remainder
+        mc.gameMode.handleContainerInput(0, 0, 0, ContainerInput.QUICK_MOVE, player); // take output planks
+        // Clean up
+        if (!player.inventoryMenu.getSlot(1).getItem().isEmpty()) {
+            mc.gameMode.handleContainerInput(0, 1, 0, ContainerInput.QUICK_MOVE, player);
+        }
+    }
+
+    public void craft2x2Sticks(Minecraft mc, LocalPlayer player, int plankSlot) {
+        mc.gameMode.handleContainerInput(0, plankSlot, 0, ContainerInput.PICKUP, player);
+        mc.gameMode.handleContainerInput(0, 1, 1, ContainerInput.PICKUP, player); // 1 plank in slot 1
+        mc.gameMode.handleContainerInput(0, 3, 1, ContainerInput.PICKUP, player); // 1 plank in slot 3
+        mc.gameMode.handleContainerInput(0, plankSlot, 0, ContainerInput.PICKUP, player); // return remainder
+        mc.gameMode.handleContainerInput(0, 0, 0, ContainerInput.QUICK_MOVE, player); // take output sticks
+        // Clean up
+        if (!player.inventoryMenu.getSlot(1).getItem().isEmpty()) {
+            mc.gameMode.handleContainerInput(0, 1, 0, ContainerInput.QUICK_MOVE, player);
+        }
+        if (!player.inventoryMenu.getSlot(3).getItem().isEmpty()) {
+            mc.gameMode.handleContainerInput(0, 3, 0, ContainerInput.QUICK_MOVE, player);
+        }
+    }
+
+    public void craft2x2CraftingTable(Minecraft mc, LocalPlayer player, int plankSlot) {
+        mc.gameMode.handleContainerInput(0, plankSlot, 0, ContainerInput.PICKUP, player);
+        mc.gameMode.handleContainerInput(0, 1, 1, ContainerInput.PICKUP, player);
+        mc.gameMode.handleContainerInput(0, 2, 1, ContainerInput.PICKUP, player);
+        mc.gameMode.handleContainerInput(0, 3, 1, ContainerInput.PICKUP, player);
+        mc.gameMode.handleContainerInput(0, 4, 1, ContainerInput.PICKUP, player);
+        mc.gameMode.handleContainerInput(0, plankSlot, 0, ContainerInput.PICKUP, player); // return remainder
+        mc.gameMode.handleContainerInput(0, 0, 0, ContainerInput.QUICK_MOVE, player); // take table
+        // Clean up
+        for (int s = 1; s <= 4; s++) {
+            if (!player.inventoryMenu.getSlot(s).getItem().isEmpty()) {
+                mc.gameMode.handleContainerInput(0, s, 0, ContainerInput.QUICK_MOVE, player);
+            }
+        }
+    }
+
+    private int findSlot(InventoryMenu menu, String keyword) {
+        keyword = keyword.toLowerCase();
+        for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.USE_ROW_SLOT_END; i++) {
+            ItemStack stack = menu.getSlot(i).getItem();
+            if (!stack.isEmpty() && stack.getItem().toString().toLowerCase().contains(keyword)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public static int countItems(LocalPlayer player, String... keywords) {
+        if (player == null) return 0;
+        int count = 0;
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (!stack.isEmpty()) {
+                String name = stack.getItem().toString().toLowerCase();
+                for (String kw : keywords) {
+                    if (name.contains(kw.toLowerCase())) {
+                        count += stack.getCount();
+                        break;
+                    }
+                }
+            }
+        }
+        return count;
     }
 
     private void autoEquipArmor(Minecraft mc, LocalPlayer player) {
@@ -248,7 +358,7 @@ public class InventoryManager {
     private boolean isEdible(ItemStack stack) {
         String name = stack.getItem().toString().toLowerCase();
         if (name.contains("rotten_flesh") || name.contains("spider_eye") ||
-            name.contains("pufferfish") || name.contains("poisonous_potato")) {
+                name.contains("pufferfish") || name.contains("poisonous_potato")) {
             return false;
         }
         return stack.has(DataComponents.FOOD);

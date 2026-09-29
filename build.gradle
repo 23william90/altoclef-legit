@@ -141,6 +141,8 @@ sourceSets {
             include 'adris/altoclef/tasks/speedrun/BeatMinecraftConfig.java'
             include 'adris/altoclef/tasks/speedrun/BeatMinecraftTask.java'
             include 'adris/altoclef/tasks/speedrun/MarvionBeatMinecraftTask.java'
+            include 'adris/altoclef/tasks/container/CraftInTableTask.java'
+            include 'adris/altoclef/tasks/container/SmeltInFurnaceTask.java'
             include 'adris/altoclef/control/InventoryManager.java'
         }
     }

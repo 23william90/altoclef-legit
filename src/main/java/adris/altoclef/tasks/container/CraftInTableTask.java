@@ -1,478 +1,302 @@
 package adris.altoclef.tasks.container;
 
 import adris.altoclef.AltoClef;
-import adris.altoclef.multiversion.recipemanager.WrappedRecipeEntry;
-import adris.altoclef.tasks.CraftGenericManuallyTask;
-import adris.altoclef.tasks.CraftGenericWithRecipeBooksTask;
-import adris.altoclef.tasks.CraftInInventoryTask;
-import adris.altoclef.tasks.ResourceTask;
-import adris.altoclef.tasks.movement.TimeoutWanderTask;
-import adris.altoclef.tasks.resources.CollectRecipeCataloguedResourcesTask;
-import adris.altoclef.tasks.slot.MoveInaccessibleItemToInventoryTask;
-import adris.altoclef.tasks.slot.ReceiveCraftingOutputSlotTask;
+import adris.altoclef.control.InventoryManager;
 import adris.altoclef.tasksystem.Task;
-import adris.altoclef.util.ItemTarget;
-import adris.altoclef.util.JankCraftingRecipeMapping;
-import adris.altoclef.util.RecipeTarget;
-import adris.altoclef.util.helpers.ItemHelper;
-import adris.altoclef.util.helpers.StorageHelper;
-import adris.altoclef.util.slots.PlayerSlot;
-import adris.altoclef.util.slots.Slot;
-import adris.altoclef.util.time.TimerGame;
-import net.minecraft.block.Blocks;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.screen.CraftingScreenHandler;
-import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.inventory.CraftingMenu;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.*;
 
-/**
- * Crafts an item in a crafting table, obtaining and placing the table down if none was found.
- */
-public class CraftInTableTask extends ResourceTask {
+public class CraftInTableTask extends Task {
 
-    private final RecipeTarget[] targets;
+    private final String itemTarget;
+    private final int targetCount;
+    private boolean finished = false;
+    private int stepTimer = 0;
+    private BlockPos placedTablePos = null;
 
-    private final DoCraftInTableTask craftTask;
+    private static final Map<String, RecipeDef> RECIPES = new HashMap<>();
 
-    public CraftInTableTask(RecipeTarget[] targets) {
-        super(extractItemTargets(targets));
-        this.targets = targets;
-        craftTask = new DoCraftInTableTask(this.targets);
-    }
+    public static class RecipeDef {
+        public final Map<Integer, String> gridSlots; // Slot 1..9 -> item keyword
+        public final Map<String, Integer> requiredCounts; // keyword -> min count
 
-    public CraftInTableTask(RecipeTarget target, boolean collect, boolean ignoreUncataloguedSlots) {
-        super(new ItemTarget(target.getOutputItem(), target.getTargetCount()));
-        targets = new RecipeTarget[]{target};
-        craftTask = new DoCraftInTableTask(targets, collect, ignoreUncataloguedSlots);
-    }
-
-    public CraftInTableTask(RecipeTarget target) {
-        this(target, true, true);
-    }
-
-    /**
-     * Extracts item targets from recipe targets.
-     *
-     * @param recipeTargets The array of recipe targets.
-     * @return The array of item targets.
-     */
-    private static ItemTarget[] extractItemTargets(RecipeTarget[] recipeTargets) {
-        // Use Java streams to map each recipe target to a new item target
-        return Arrays.stream(recipeTargets)
-                .map(t -> new ItemTarget(t.getOutputItem(), t.getTargetCount()))
-                .toArray(ItemTarget[]::new);
-    }
-
-    /**
-     * Determines whether the player should avoid picking up items.
-     *
-     * @param mod The AltoClef mod instance.
-     * @return true if the player should avoid picking up items, false otherwise.
-     */
-    @Override
-    protected boolean shouldAvoidPickingUp(AltoClef mod) {
-        return false;
-    }
-
-    /**
-     * Called when the resource starts.
-     *
-     * @param mod The AltoClef mod instance.
-     */
-    @Override
-    protected void onResourceStart(AltoClef mod) {
-
-    }
-
-    /**
-     * This method is called on each tick of the resource manager.
-     * It returns the task that should be executed on each tick.
-     *
-     * @param mod The instance of the AltoClef mod.
-     * @return The task to be executed on each tick.
-     */
-    @Override
-    protected Task onResourceTick(AltoClef mod) {
-        return craftTask;
-    }
-
-    /**
-     * Override method called when the resource stops.
-     *
-     * @param mod           The AltoClef mod.
-     * @param interruptTask The interrupt task.
-     */
-    @Override
-    protected void onResourceStop(AltoClef mod, Task interruptTask) {
-        // Get the item stack in the cursor slot.
-        ItemStack cursorStack = StorageHelper.getItemStackInCursorSlot();
-
-        // If the cursor stack is not empty, handle it.
-        if (!cursorStack.isEmpty()) {
-            // Find a slot in the player inventory that can fit the cursor stack.
-            Optional<Slot> moveToSlot = mod.getItemStorage().getSlotThatCanFitInPlayerInventory(cursorStack, false);
-
-            // If a slot is found, pick up the item from the cursor slot and move it to the found slot.
-            moveToSlot.ifPresent(slot -> mod.getSlotHandler().clickSlot(slot, 0, SlotActionType.PICKUP));
-
-            // If the item can be thrown away, pick up the item from the cursor slot and throw it away.
-            if (ItemHelper.canThrowAwayStack(mod, cursorStack)) {
-                mod.getSlotHandler().clickSlot(Slot.UNDEFINED, 0, SlotActionType.PICKUP);
-            }
-
-            // Find the garbage slot and move the item from the cursor slot to the garbage slot.
-            Optional<Slot> garbageSlot = StorageHelper.getGarbageSlot(mod);
-            garbageSlot.ifPresent(slot -> mod.getSlotHandler().clickSlot(slot, 0, SlotActionType.PICKUP));
-        } else {
-            // If the cursor stack is empty, close the screen.
-            StorageHelper.closeScreen();
+        public RecipeDef(Map<Integer, String> gridSlots, Map<String, Integer> requiredCounts) {
+            this.gridSlots = gridSlots;
+            this.requiredCounts = requiredCounts;
         }
-
-        // Pick up an undefined slot.
-        mod.getSlotHandler().clickSlot(Slot.UNDEFINED, 0, SlotActionType.PICKUP);
     }
 
-    /**
-     * Checks if the given ResourceTask is equal to this CraftInTableTask.
-     *
-     * @param other The ResourceTask to compare with.
-     * @return true if the ResourceTask is a CraftInTableTask and its craftTask is equal to this task's craftTask, false otherwise.
-     */
-    @Override
-    protected boolean isEqualResource(ResourceTask other) {
-        // Check if the other task is an instance of CraftInTableTask
-        if (other instanceof CraftInTableTask task) {
-            // Compare the craftTask of the two tasks
-            return craftTask.isEqual(task.craftTask);
-        }
-        // The other task is not a CraftInTableTask, return false
-        return false;
+    static {
+        // Wooden Pickaxe: 3 planks (1,2,3), 2 sticks (5,8)
+        Map<Integer, String> wPick = Map.of(1, "plank", 2, "plank", 3, "plank", 5, "stick", 8, "stick");
+        RECIPES.put("wooden_pickaxe", new RecipeDef(wPick, Map.of("plank", 3, "stick", 2)));
+
+        // Stone Pickaxe: 3 cobble (1,2,3), 2 sticks (5,8)
+        Map<Integer, String> sPick = Map.of(1, "cobble", 2, "cobble", 3, "cobble", 5, "stick", 8, "stick");
+        RECIPES.put("stone_pickaxe", new RecipeDef(sPick, Map.of("cobble", 3, "stick", 2)));
+
+        // Stone Sword: 2 cobble (2,5), 1 stick (8)
+        Map<Integer, String> sSword = Map.of(2, "cobble", 5, "cobble", 8, "stick");
+        RECIPES.put("stone_sword", new RecipeDef(sSword, Map.of("cobble", 2, "stick", 1)));
+
+        // Furnace: 8 cobble (1,2,3,4,6,7,8,9)
+        Map<Integer, String> furnace = Map.of(1, "cobble", 2, "cobble", 3, "cobble", 4, "cobble", 6, "cobble", 7, "cobble", 8, "cobble", 9, "cobble");
+        RECIPES.put("furnace", new RecipeDef(furnace, Map.of("cobble", 8)));
+
+        // Iron Pickaxe: 3 iron ingots (1,2,3), 2 sticks (5,8)
+        Map<Integer, String> iPick = Map.of(1, "iron_ingot", 2, "iron_ingot", 3, "iron_ingot", 5, "stick", 8, "stick");
+        RECIPES.put("iron_pickaxe", new RecipeDef(iPick, Map.of("iron_ingot", 3, "stick", 2)));
+
+        // Shield: 6 planks (1,3,4,5,6,8), 1 iron ingot (2)
+        Map<Integer, String> shield = Map.of(1, "plank", 2, "iron_ingot", 3, "plank", 4, "plank", 5, "plank", 6, "plank", 8, "plank");
+        RECIPES.put("shield", new RecipeDef(shield, Map.of("plank", 6, "iron_ingot", 1)));
+
+        // Bucket: 3 iron ingots (4,6,8)
+        Map<Integer, String> bucket = Map.of(4, "iron_ingot", 6, "iron_ingot", 8, "iron_ingot");
+        RECIPES.put("bucket", new RecipeDef(bucket, Map.of("iron_ingot", 3)));
+
+        // Iron Chestplate: 8 iron ingots (1,3,4,5,6,7,8,9)
+        Map<Integer, String> iChest = Map.of(1, "iron_ingot", 3, "iron_ingot", 4, "iron_ingot", 5, "iron_ingot", 6, "iron_ingot", 7, "iron_ingot", 8, "iron_ingot", 9, "iron_ingot");
+        RECIPES.put("iron_chestplate", new RecipeDef(iChest, Map.of("iron_ingot", 8)));
+
+        // Diamond Pickaxe: 3 diamonds (1,2,3), 2 sticks (5,8)
+        Map<Integer, String> dPick = Map.of(1, "diamond", 2, "diamond", 3, "diamond", 5, "stick", 8, "stick");
+        RECIPES.put("diamond_pickaxe", new RecipeDef(dPick, Map.of("diamond", 3, "stick", 2)));
     }
 
-    /**
-     * Returns the debug string name of the craft task.
-     * If the craft task is not null, it calls the toDebugString() method of the craft task and returns the result.
-     * Otherwise, it returns null.
-     *
-     * @return the debug string name of the craft task, or null if the craft task is null.
-     */
-    @Override
-    protected String toDebugStringName() {
-        return (craftTask != null) ? craftTask.toDebugString() : null;
+    public CraftInTableTask(String itemTarget, int targetCount) {
+        this.itemTarget = itemTarget.toLowerCase();
+        this.targetCount = targetCount;
     }
 
-    /**
-     * Returns a copy of the recipe targets.
-     *
-     * @return The recipe targets.
-     */
-    public RecipeTarget[] getRecipeTargets() {
-        return Arrays.copyOf(targets, targets.length);
-    }
-}
-
-
-class DoCraftInTableTask extends DoStuffInContainerTask {
-
-    private final float CRAFT_RESET_TIMER_BONUS_SECONDS = 10;
-
-    private final RecipeTarget[] _targets;
-
-    private final boolean _collect;
-
-    private final CollectRecipeCataloguedResourcesTask _collectTask;
-    private final TimerGame _craftResetTimer = new TimerGame(CRAFT_RESET_TIMER_BONUS_SECONDS);
-    private int _craftCount;
-
-    public DoCraftInTableTask(RecipeTarget[] targets, boolean collect, boolean ignoreUncataloguedSlots) {
-        super(Blocks.CRAFTING_TABLE, new ItemTarget("crafting_table"));
-        _collectTask = new CollectRecipeCataloguedResourcesTask(false, targets);
-        _targets = targets;
-        _collect = collect;
+    public CraftInTableTask(String itemTarget) {
+        this(itemTarget, 1);
     }
 
-    public DoCraftInTableTask(RecipeTarget[] targets) {
-        this(targets, true, false);
-    }
-
-    /**
-     * Override method called when the mod starts.
-     * Refactored to handle item management and screen closing.
-     * Resets the collect task.
-     */
     @Override
     protected void onStart() {
-        super.onStart();
-        AltoClef mod = AltoClef.getInstance();
-        // Save the current behaviour and craft count
-        mod.getBehaviour().push();
-        _craftCount = 0;
-
-        // Check if there is an item in the cursor slot
-        ItemStack cursorStack = StorageHelper.getItemStackInCursorSlot();
-
-        if (!cursorStack.isEmpty()) {
-            // Move the item to a slot in the player's inventory that can fit it
-            Optional<Slot> moveTo = mod.getItemStorage().getSlotThatCanFitInPlayerInventory(cursorStack, false);
-            moveTo.ifPresent(slot -> mod.getSlotHandler().clickSlot(slot, 0, SlotActionType.PICKUP));
-
-            // Check if the item can be thrown away
-            if (ItemHelper.canThrowAwayStack(mod, cursorStack)) {
-                // Throw away the item
-                mod.getSlotHandler().clickSlot(Slot.UNDEFINED, 0, SlotActionType.PICKUP);
-            }
-
-            // Move the item to the garbage slot
-            StorageHelper.getGarbageSlot(mod).ifPresent(slot -> mod.getSlotHandler().clickSlot(slot, 0, SlotActionType.PICKUP));
-
-            // Clear the cursor slot
-            mod.getSlotHandler().clickSlot(Slot.UNDEFINED, 0, SlotActionType.PICKUP);
-        } else {
-            // Close the screen if there is no item in the cursor slot
-            StorageHelper.closeScreen();
-        }
-
-        // Reset the collect task
-        _collectTask.reset();
-
-        // Add protected items to the behaviour
-        mod.getBehaviour().addProtectedItems(getMaterialsArray());
+        finished = false;
+        stepTimer = 0;
+        placedTablePos = null;
+        setDebugState("Crafting " + itemTarget + " in Crafting Table...");
     }
 
-    /**
-     * This method is called when the task is interrupted or stopped.
-     * It performs the necessary actions to handle the interruption or stopping of the task.
-     *
-     * @param interruptTask The task that caused the interruption, or null if the task was stopped manually.
-     */
-    @Override
-    protected void onStop(Task interruptTask) {
-        // Get the item stack in the cursor slot
-        ItemStack cursorStack = StorageHelper.getItemStackInCursorSlot();
-        AltoClef mod = AltoClef.getInstance();
-
-        // If the cursor stack is empty, close the screen
-        if (cursorStack.isEmpty()) {
-            StorageHelper.closeScreen();
-        } else {
-            // Get a slot that can fit the cursor stack
-            Optional<Slot> moveToSlot = mod.getItemStorage().getSlotThatCanFitInPlayerInventory(cursorStack, false);
-
-            // If a slot is found, move the cursor stack to that slot
-            moveToSlot.ifPresent(slot -> mod.getSlotHandler().clickSlot(slot, 0, SlotActionType.PICKUP));
-
-            // If the cursor stack can be thrown away, throw it away
-            if (ItemHelper.canThrowAwayStack(mod, cursorStack)) {
-                mod.getSlotHandler().clickSlot(Slot.UNDEFINED, 0, SlotActionType.PICKUP);
-            }
-
-            // Get the garbage slot
-            Optional<Slot> garbageSlot = StorageHelper.getGarbageSlot(mod);
-
-            // If a garbage slot is found, move the cursor stack to that slot
-            garbageSlot.ifPresent(slot -> mod.getSlotHandler().clickSlot(slot, 0, SlotActionType.PICKUP));
-
-            // Move the cursor stack to an undefined slot
-            mod.getSlotHandler().clickSlot(Slot.UNDEFINED, 0, SlotActionType.PICKUP);
-        }
-
-        // Call the onStop method of the super class
-        super.onStop(interruptTask);
-
-        // Pop the behaviour from the stack
-        mod.getBehaviour().pop();
-    }
-
-    /**
-     * This method is called periodically to perform crafting-related tasks.
-     *
-     * @return The next task to execute.
-     */
     @Override
     protected Task onTick() {
-        AltoClef mod = AltoClef.getInstance();
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
+        if (player == null || mc.level == null || mc.gameMode == null) return null;
 
-        // Avoid breaking crafting tables
-        List<BlockPos> craftingTablePositions = mod.getBlockScanner().getKnownLocations(Blocks.CRAFTING_TABLE);
-        for (BlockPos craftingTablePos : craftingTablePositions) {
-            mod.getBehaviour().avoidBlockBreaking(craftingTablePos);
+        if (stepTimer-- > 0) return null;
+
+        // Check if item is already in inventory
+        if (InventoryManager.countItems(player, itemTarget) >= targetCount) {
+            finished = true;
+            cleanUpPlacedTable(mc);
+            return null;
         }
 
-        // Check if the player inventory is open and the cursor slot is empty
-        if (StorageHelper.isPlayerInventoryOpen() && StorageHelper.getItemStackInCursorSlot().isEmpty()) {
-            // Get the item in the craft output slot
-            Item outputItem = StorageHelper.getItemStackInSlot(PlayerSlot.CRAFT_OUTPUT_SLOT).getItem();
-            // Check if the output item matches any of the targets and the target count is not reached
-            for (RecipeTarget target : _targets) {
-                if (target.getOutputItem() == outputItem && mod.getItemStorage().getItemCount(target.getOutputItem()) < target.getTargetCount()) {
-                    return new ReceiveCraftingOutputSlotTask(PlayerSlot.CRAFT_OUTPUT_SLOT, target.getTargetCount());
-                }
+        RecipeDef recipe = RECIPES.get(itemTarget);
+        if (recipe == null) {
+            setDebugState("Unknown recipe target: " + itemTarget);
+            finished = true;
+            return null;
+        }
+
+        // Verify required materials exist
+        for (Map.Entry<String, Integer> req : recipe.requiredCounts.entrySet()) {
+            if (InventoryManager.countItems(player, req.getKey()) < req.getValue()) {
+                setDebugState("Missing ingredient: need " + req.getValue() + "x " + req.getKey());
+                return null;
             }
         }
 
-        // Check if we need to collect items and the collect task is not finished
-        if (_collect && !_collectTask.isFinished() && !StorageHelper.hasRecipeMaterialsOrTarget(mod, _targets)) {
-            return _collectTask;
+        // 1. Crafting table menu is currently open!
+        if (player.containerMenu instanceof CraftingMenu menu) {
+            executeRecipeCraft(mc, player, menu, recipe);
+            return null;
         }
 
-        // Reset the craft reset timer if the container is not open
-        if (!isContainerOpen(mod)) {
-            _craftResetTimer.reset();
+        // 2. Crafting table is NOT open yet: find or place one
+        BlockPos existingTable = findNearbyTable(mc, player);
+        if (existingTable != null) {
+            setDebugState("Opening nearby Crafting Table at " + existingTable.toShortString());
+            BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(existingTable), Direction.UP, existingTable, false);
+            mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+            stepTimer = 5;
+            return null;
         }
 
-        // Check if there is any inaccessible item in the recipes and move it to the inventory
-        if (!thisOrChildSatisfies(task -> task instanceof CraftInInventoryTask)) {
-            for (RecipeTarget target : _targets) {
-                for (int slot = 0; slot < target.getRecipe().getSlotCount(); ++slot) {
-                    ItemTarget toCheck = target.getRecipe().getSlot(slot);
-                    if (StorageHelper.isItemInaccessibleToContainer(mod, toCheck)) {
-                        return new MoveInaccessibleItemToInventoryTask(toCheck);
-                    }
-                }
+        // 3. Need to place a crafting table
+        int tableItemCount = InventoryManager.countItems(player, "crafting_table");
+        if (tableItemCount == 0) {
+            // Auto 2x2 craft crafting table if we have 4 planks
+            if (InventoryManager.countItems(player, "plank") >= 4) {
+                AltoClef.getInstance().getInventoryManager().tick(AltoClef.getInstance());
+                stepTimer = 4;
+            } else {
+                setDebugState("Need 4 planks to craft Crafting Table!");
             }
+            return null;
         }
 
-        // Call the parent method
-        return super.onTick();
-    }
-
-    /**
-     * Checks if the given DoStuffInContainerTask is equal to this task.
-     *
-     * @param other The other DoStuffInContainerTask to compare.
-     * @return True if the tasks are equal, False otherwise.
-     */
-    @Override
-    protected boolean isSubTaskEqual(DoStuffInContainerTask other) {
-        // Check if the other task is an instance of DoCraftInTableTask
-        if (other instanceof DoCraftInTableTask task) {
-            // Compare the targets arrays of the two tasks
-            return Arrays.equals(task._targets, _targets);
-        }
-        // The other task is not an instance of DoCraftInTableTask, so they are not equal
-        return false;
-    }
-
-    /**
-     * Checks if the container is open.
-     *
-     * @param mod The AltoClef mod instance.
-     * @return True if the container is open, false otherwise.
-     */
-    @Override
-    protected boolean isContainerOpen(AltoClef mod) {
-        return mod.getPlayer().currentScreenHandler instanceof CraftingScreenHandler;
-    }
-
-    /**
-     * Executes the container subtask.
-     *
-     * @param mod The AltoClef mod instance.
-     * @return The subtask to be executed.
-     */
-    @Override
-    protected Task containerSubTask(AltoClef mod) {
-        // Calculate the interval based on the container item move delay and a bonus duration
-        float interval = mod.getModSettings().getContainerItemMoveDelay() * 10 + CRAFT_RESET_TIMER_BONUS_SECONDS;
-        _craftResetTimer.setInterval(interval);
-
-        // If the craft reset timer has elapsed, return a TimeoutWanderTask
-        if (_craftResetTimer.elapsed()) {
-            return new TimeoutWanderTask(5);
-        }
-
-        // Iterate through each target recipe
-        for (RecipeTarget target : _targets) {
-            // Check if the output item count meets the target count
-            if (mod.getItemStorage().getItemCount(target.getOutputItem()) >= target.getTargetCount()) {
-                continue;
+        // Place table
+        BlockPos placePos = findPlacingSpot(mc, player);
+        if (placePos != null) {
+            int hotbarTableSlot = findHotbarItem(player, "crafting_table");
+            if (hotbarTableSlot != -1) {
+                player.getInventory().setSelectedSlot(hotbarTableSlot);
+                BlockPos support = placePos.below();
+                BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(support).add(0, 0.5, 0), Direction.UP, support, false);
+                mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+                placedTablePos = placePos;
+                stepTimer = 3;
             }
-
-            // Get the recipe to send based on the target recipe and output item
-            Optional<WrappedRecipeEntry> recipeToSend = JankCraftingRecipeMapping.getMinecraftMappedRecipe(target.getRecipe(), target.getOutputItem());
-
-            // Get the client player entity
-            ClientPlayerEntity player = MinecraftClient.getInstance().player;
-
-            // If crafting book is enabled, the recipe to send exists, and the player has the recipe in their recipe book, return a CraftGenericWithRecipeBooksTask
-            if (mod.getModSettings().shouldUseCraftingBookToCraft() && recipeToSend.isPresent()) {
-                assert player != null;
-                if (player.getRecipeBook().contains(recipeToSend.get().id())) {
-                    return new CraftGenericWithRecipeBooksTask(target);
-                }
-            }
-
-            // Return a CraftGenericManuallyTask by default
-            return new CraftGenericManuallyTask(target);
         }
 
         return null;
     }
 
-    /**
-     * Checks if the specified mod is finished.
-     *
-     * @return True if the mod is finished, false otherwise.
-     */
-    @Override
-    public boolean isFinished() {
-        // Check if the craft count is greater than or equal to the number of targets
-        return _craftCount >= _targets.length;
-    }
+    private void executeRecipeCraft(Minecraft mc, LocalPlayer player, CraftingMenu menu, RecipeDef recipe) {
+        int containerId = menu.containerId;
 
-    /**
-     * Returns the cost to make a new AltoClef mod.
-     *
-     * @param mod The AltoClef mod instance.
-     * @return The cost to make a new AltoClef mod.
-     */
-    @Override
-    protected double getCostToMakeNew(AltoClef mod) {
-        // Get the nearest crafting table.
-        Optional<BlockPos> closestCraftingTable = mod.getBlockScanner().getNearestBlock(Blocks.CRAFTING_TABLE);
-
-        // If a crafting table is within 40 blocks of the player, return positive infinity.
-        if (closestCraftingTable.isPresent() && closestCraftingTable.get().isWithinDistance(mod.getPlayer().getPos(), 40)) {
-            return Double.POSITIVE_INFINITY;
+        // Group required slots by ingredient keyword
+        Map<String, List<Integer>> keywordToSlots = new HashMap<>();
+        for (Map.Entry<Integer, String> entry : recipe.gridSlots.entrySet()) {
+            keywordToSlots.computeIfAbsent(entry.getValue(), k -> new ArrayList<>()).add(entry.getKey());
         }
 
-        // If the mod has logs or enough planks, return a cost of 10.
-        if (mod.getItemStorage().hasItem(ItemHelper.LOG) || mod.getItemStorage().getItemCount(ItemHelper.PLANKS) >= 4) {
-            return 10;
+        // For each ingredient group, place into grid
+        for (Map.Entry<String, List<Integer>> group : keywordToSlots.entrySet()) {
+            String keyword = group.getKey();
+            List<Integer> slotsToFill = group.getValue();
+
+            int invSlot = findSlotInContainer(menu, keyword);
+            if (invSlot == -1) return;
+
+            // Pick up ingredient stack
+            mc.gameMode.handleContainerInput(containerId, invSlot, 0, ContainerInput.PICKUP, player);
+
+            // Right click each slot to place 1 item
+            for (int gridSlot : slotsToFill) {
+                mc.gameMode.handleContainerInput(containerId, gridSlot, 1, ContainerInput.PICKUP, player);
+            }
+
+            // Return remaining items to original inventory slot
+            mc.gameMode.handleContainerInput(containerId, invSlot, 0, ContainerInput.PICKUP, player);
         }
 
-        // Otherwise, return a cost of 100.
-        return 100;
-    }
+        // Take crafted item from slot 0 with quick move!
+        mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
 
-    /**
-     * Returns an array of materials.
-     *
-     * @return the array of materials
-     */
-    private Item[] getMaterialsArray() {
-        List<Item> result = new ArrayList<>();
-
-        // Iterate over each target
-        for (RecipeTarget target : _targets) {
-            // Iterate over each slot in the recipe
-            for (int i = 0; i < target.getRecipe().getSlotCount(); ++i) {
-                ItemTarget materialTarget = target.getRecipe().getSlot(i);
-                // Check if the material target is not null and has matches
-                if (materialTarget != null && materialTarget.getMatches() != null) {
-                    // Add all the matches to the result list
-                    Collections.addAll(result, materialTarget.getMatches());
-                }
+        // Clear any leftovers from 3x3 grid back into inventory
+        for (int s = 1; s <= 9; s++) {
+            if (!menu.getSlot(s).getItem().isEmpty()) {
+                mc.gameMode.handleContainerInput(containerId, s, 0, ContainerInput.QUICK_MOVE, player);
             }
         }
 
-        // Convert the result list to an array and return it
-        return result.toArray(new Item[0]);
+        // Close screen
+        player.closeContainer();
+        setDebugState("Successfully crafted " + itemTarget + "!");
+
+        cleanUpPlacedTable(mc);
+        finished = true;
     }
 
+    private void cleanUpPlacedTable(Minecraft mc) {
+        if (placedTablePos != null && mc.gameMode != null && mc.level != null) {
+            if (mc.level.getBlockState(placedTablePos).is(Blocks.CRAFTING_TABLE)) {
+                mc.gameMode.destroyBlock(placedTablePos);
+            }
+            placedTablePos = null;
+        }
+    }
+
+    private BlockPos findNearbyTable(Minecraft mc, LocalPlayer player) {
+        if (mc.level == null) return null;
+        BlockPos center = player.blockPosition();
+        for (int x = -3; x <= 3; x++) {
+            for (int y = -2; y <= 2; y++) {
+                for (int z = -3; z <= 3; z++) {
+                    BlockPos p = center.offset(x, y, z);
+                    if (mc.level.getBlockState(p).is(Blocks.CRAFTING_TABLE)) {
+                        return p;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private BlockPos findPlacingSpot(Minecraft mc, LocalPlayer player) {
+        if (mc.level == null) return null;
+        BlockPos center = player.blockPosition();
+        for (Direction dir : Direction.Plane.HORIZONTAL) {
+            BlockPos target = center.relative(dir);
+            BlockPos support = target.below();
+            if (mc.level.getBlockState(target).isAir() && mc.level.getBlockState(support).isSolid()) {
+                return target;
+            }
+        }
+        return null;
+    }
+
+    private int findHotbarItem(LocalPlayer player, String keyword) {
+        keyword = keyword.toLowerCase();
+        for (int i = 0; i < 9; i++) {
+            ItemStack s = player.getInventory().getItem(i);
+            if (!s.isEmpty() && s.getItem().toString().toLowerCase().contains(keyword)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int findSlotInContainer(CraftingMenu menu, String keyword) {
+        keyword = keyword.toLowerCase();
+        // Slots 10..45 are player inventory in CraftingMenu
+        for (int i = 10; i < menu.slots.size(); i++) {
+            ItemStack stack = menu.getSlot(i).getItem();
+            if (!stack.isEmpty() && stack.getItem().toString().toLowerCase().contains(keyword)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    @Override
+    protected void onStop(Task interruptTask) {
+        Minecraft mc = Minecraft.getInstance();
+        cleanUpPlacedTable(mc);
+    }
+
+    @Override
+    public boolean isFinished() {
+        return finished;
+    }
+
+    @Override
+    protected boolean isEqual(Task other) {
+        if (other instanceof CraftInTableTask t) {
+            return t.itemTarget.equals(this.itemTarget) && t.targetCount == this.targetCount;
+        }
+        return false;
+    }
+
+    @Override
+    protected String toDebugString() {
+        return "Crafting " + targetCount + "x " + itemTarget + " in Table";
+    }
 }
