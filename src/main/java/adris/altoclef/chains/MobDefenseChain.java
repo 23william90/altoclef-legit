@@ -15,7 +15,9 @@ import net.minecraft.world.entity.monster.Enderman;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.monster.skeleton.AbstractSkeleton;
 import net.minecraft.world.entity.projectile.Projectile;
+import adris.altoclef.control.InventoryManager;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.phys.Vec3;
 
@@ -275,11 +277,11 @@ public class MobDefenseChain extends SingleTaskChain {
 
     private boolean hasShield(LocalPlayer player) {
         ItemStack off = player.getOffhandItem();
-        if (!off.isEmpty() && off.getItem().toString().toLowerCase().contains("shield")) {
+        if (!off.isEmpty() && (off.is(Items.SHIELD) || InventoryManager.getItemName(off).contains("shield"))) {
             return true;
         }
         ItemStack main = player.getMainHandItem();
-        return !main.isEmpty() && main.getItem().toString().toLowerCase().contains("shield");
+        return !main.isEmpty() && (main.is(Items.SHIELD) || InventoryManager.getItemName(main).contains("shield"));
     }
 
     private void equipBestWeapon(LocalPlayer player) {
@@ -289,7 +291,7 @@ public class MobDefenseChain extends SingleTaskChain {
         for (int i = 0; i < 9; i++) {
             ItemStack stack = player.getInventory().getItem(i);
             if (stack.isEmpty()) continue;
-            String name = stack.getItem().toString().toLowerCase();
+            String name = InventoryManager.getItemName(stack);
             float score = 0;
             if (name.contains("netherite_sword")) score = 10;
             else if (name.contains("diamond_sword")) score = 9;

@@ -5,9 +5,11 @@ import adris.altoclef.tasksystem.TaskRunner;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.utils.input.Input;
+import adris.altoclef.control.InventoryManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 public class MLGBucketFallChain extends SingleTaskChain {
 
@@ -115,7 +117,7 @@ public class MLGBucketFallChain extends SingleTaskChain {
     private int findWaterBucketSlot(LocalPlayer player) {
         for (int i = 0; i < 9; i++) {
             ItemStack stack = player.getInventory().getItem(i);
-            if (!stack.isEmpty() && stack.getItem().toString().toLowerCase().contains("water_bucket")) {
+            if (!stack.isEmpty() && (stack.is(Items.WATER_BUCKET) || InventoryManager.getItemName(stack).contains("water_bucket"))) {
                 return i;
             }
         }
@@ -126,8 +128,7 @@ public class MLGBucketFallChain extends SingleTaskChain {
         for (int i = 0; i < 9; i++) {
             ItemStack stack = player.getInventory().getItem(i);
             if (!stack.isEmpty()) {
-                String name = stack.getItem().toString().toLowerCase();
-                if (name.equals("bucket") || name.endsWith(":bucket")) {
+                if (stack.is(Items.BUCKET) || InventoryManager.getItemName(stack).equals("bucket")) {
                     return i;
                 }
             }

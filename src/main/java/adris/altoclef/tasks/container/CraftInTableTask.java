@@ -188,8 +188,22 @@ public class CraftInTableTask extends Task {
 
         placedTableWaitTicks = 0;
 
-        // 5. Check if we need to craft a Crafting Table first
+        // 4b. If we have no Crafting Table in inventory, check if one is located further away (up to 16 blocks)
         int tableItemCount = InventoryManager.countItems(player, "crafting_table");
+        if (tableItemCount == 0) {
+            BlockPos distantTable = findDistantTable(mc, player, 16);
+            if (distantTable != null) {
+                IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                if (baritone != null && !baritone.getPathingBehavior().isPathing()) {
+                    baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(distantTable, 2));
+                    setDebugState("Navigating to existing Crafting Table at " + distantTable.toShortString());
+                }
+                stepTimer = 4;
+                return null;
+            }
+        }
+
+        // 5. Check if we need to craft a Crafting Table first
         if (tableItemCount == 0) {
             int planks = InventoryManager.countItems(player, "plank");
             if (planks >= 4) {
@@ -524,6 +538,30 @@ public class CraftInTableTask extends Task {
         return bestTable;
     }
 
+    private BlockPos findDistantTable(Minecraft mc, LocalPlayer player, int radius) {
+        if (mc.level == null) return null;
+        Vec3 eyePos = player.getEyePosition();
+        BlockPos center = player.blockPosition();
+        BlockPos bestTable = null;
+        double bestDistSq = Double.MAX_VALUE;
+
+        for (int x = -radius; x <= radius; x++) {
+            for (int y = -4; y <= 4; y++) {
+                for (int z = -radius; z <= radius; z++) {
+                    BlockPos p = center.offset(x, y, z);
+                    if (mc.level.getBlockState(p).is(Blocks.CRAFTING_TABLE)) {
+                        double d = eyePos.distanceToSqr(Vec3.atCenterOf(p));
+                        if (d < bestDistSq) {
+                            bestDistSq = d;
+                            bestTable = p;
+                        }
+                    }
+                }
+            }
+        }
+        return bestTable;
+    }
+
     private BlockPos findPlacingSpot(Minecraft mc, LocalPlayer player) {
         if (mc.level == null) return null;
         BlockPos playerPos = player.blockPosition();
@@ -683,11 +721,21 @@ public class CraftInTableTask extends Task {
     @Override
     protected void onStop(Task interruptTask) {
         cancelBaritonePathing();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null && mc.player.containerMenu instanceof CraftingMenu) {
+            mc.player.closeContainer();
+        }
     }
 
     @Override
     public boolean isFinished() {
-        return finished;
+        if (finished) return true;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null && InventoryManager.countItems(mc.player, itemTarget) >= targetCount) {
+            finished = true;
+            return true;
+        }
+        return false;
     }
 
     @Override

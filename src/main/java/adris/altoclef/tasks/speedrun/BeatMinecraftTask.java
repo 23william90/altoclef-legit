@@ -98,9 +98,10 @@ public class BeatMinecraftTask extends Task {
         if (player == null) return;
 
         ToolTier pickTier = MineBlockTask.getPlayerPickaxeTier(player);
+        boolean hasPickaxe = pickTier.getLevel() >= ToolTier.WOOD.getLevel() || countItemInInventory(mc, "pickaxe") > 0;
 
         int logs = countItemInInventory(mc, "log");
-        int planks = countItemInInventory(mc, "planks");
+        int planks = countItemInInventory(mc, "plank");
         int sticks = countItemInInventory(mc, "stick");
         int tables = countItemInInventory(mc, "crafting_table");
         int furnaces = countItemInInventory(mc, "furnace");
@@ -136,15 +137,15 @@ public class BeatMinecraftTask extends Task {
             // Overworld Strict Progression: NO SKIPPING STEPS!
 
             // 1. Gather Wood Logs
-            if (logs < 4 && planks < 8 && pickTier == ToolTier.HAND) {
+            if (logs < 4 && planks < 8 && !hasPickaxe) {
                 currentPhase = SpeedrunPhase.GATHER_WOOD;
             }
             // 2. Craft Basic 2x2 Materials (Planks, Sticks, Crafting Table)
-            else if ((planks < 8 || sticks < 4 || tables < 1) && pickTier == ToolTier.HAND) {
+            else if ((planks < 8 || sticks < 4 || tables < 1) && !hasPickaxe) {
                 currentPhase = SpeedrunPhase.CRAFT_BASIC_MATERIALS;
             }
             // 3. Craft Wooden Pickaxe
-            else if (pickTier == ToolTier.HAND) {
+            else if (!hasPickaxe) {
                 currentPhase = SpeedrunPhase.CRAFT_WOODEN_PICKAXE;
             }
             // 4. Mine Cobblestone (Requires Wooden Pickaxe!)
@@ -262,26 +263,13 @@ public class BeatMinecraftTask extends Task {
     private boolean isShieldEquipped(LocalPlayer player) {
         if (player == null) return false;
         ItemStack offhand = player.getOffhandItem();
-        return offhand != null && !offhand.isEmpty() && offhand.getItem().toString().toLowerCase().contains("shield");
+        return offhand != null && !offhand.isEmpty() &&
+                (offhand.is(net.minecraft.world.item.Items.SHIELD) || InventoryManager.getItemName(offhand).contains("shield"));
     }
 
     private int countItemInInventory(Minecraft mc, String... keywords) {
         if (mc.player == null) return 0;
-        Inventory inv = mc.player.getInventory();
-        int count = 0;
-        for (int i = 0; i < inv.getContainerSize(); i++) {
-            ItemStack stack = inv.getItem(i);
-            if (!stack.isEmpty()) {
-                String name = stack.getItem().toString().toLowerCase();
-                for (String kw : keywords) {
-                    if (name.contains(kw.toLowerCase())) {
-                        count += stack.getCount();
-                        break;
-                    }
-                }
-            }
-        }
-        return count;
+        return InventoryManager.countItems(mc.player, keywords);
     }
 
     @Override

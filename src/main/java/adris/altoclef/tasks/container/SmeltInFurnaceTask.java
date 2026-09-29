@@ -155,6 +155,16 @@ public class SmeltInFurnaceTask extends Task {
         // 3. Need to place a furnace
         int furnaceItemCount = InventoryManager.countItems(player, "furnace");
         if (furnaceItemCount == 0) {
+            BlockPos distantFurnace = findDistantFurnace(mc, player, 16);
+            if (distantFurnace != null) {
+                IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                if (baritone != null && !baritone.getPathingBehavior().isPathing()) {
+                    baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(distantFurnace, 2));
+                    setDebugState("Navigating to existing Furnace at " + distantFurnace.toShortString());
+                }
+                stepTimer = 4;
+                return null;
+            }
             setDebugState("Need to craft a Furnace first!");
             return new CraftInTableTask("furnace");
         }
@@ -300,6 +310,30 @@ public class SmeltInFurnaceTask extends Task {
         return bestFurnace;
     }
 
+    private BlockPos findDistantFurnace(Minecraft mc, LocalPlayer player, int radius) {
+        if (mc.level == null) return null;
+        Vec3 eyePos = player.getEyePosition();
+        BlockPos center = player.blockPosition();
+        BlockPos bestFurnace = null;
+        double bestDistSq = Double.MAX_VALUE;
+
+        for (int x = -radius; x <= radius; x++) {
+            for (int y = -4; y <= 4; y++) {
+                for (int z = -radius; z <= radius; z++) {
+                    BlockPos p = center.offset(x, y, z);
+                    if (mc.level.getBlockState(p).is(Blocks.FURNACE)) {
+                        double d = eyePos.distanceToSqr(Vec3.atCenterOf(p));
+                        if (d < bestDistSq) {
+                            bestDistSq = d;
+                            bestFurnace = p;
+                        }
+                    }
+                }
+            }
+        }
+        return bestFurnace;
+    }
+
     private BlockPos findPlacingSpot(Minecraft mc, LocalPlayer player) {
         if (mc.level == null) return null;
         BlockPos playerPos = player.blockPosition();
@@ -430,11 +464,24 @@ public class SmeltInFurnaceTask extends Task {
     @Override
     protected void onStop(Task interruptTask) {
         cancelBaritonePathing();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null && mc.player.containerMenu instanceof FurnaceMenu) {
+            mc.player.closeContainer();
+        }
     }
 
     @Override
     public boolean isFinished() {
-        return finished;
+        if (finished) return true;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) {
+            String outputKeyword = ingredientKeyword.contains("iron") ? "iron_ingot" : (ingredientKeyword.contains("gold") ? "gold_ingot" : ingredientKeyword);
+            if (InventoryManager.countItems(mc.player, outputKeyword) >= targetOutputCount) {
+                finished = true;
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

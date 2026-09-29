@@ -1,6 +1,7 @@
 package adris.altoclef.tasks.speedrun;
 
 import adris.altoclef.AltoClef;
+import adris.altoclef.control.InventoryManager;
 import adris.altoclef.tasks.construction.MineBlockTask;
 import adris.altoclef.tasks.construction.MineBlockTask.ToolTier;
 import adris.altoclef.tasks.container.CraftInTableTask;
@@ -24,6 +25,7 @@ import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.BlockHitResult;
@@ -50,6 +52,7 @@ public class MarvionBeatMinecraftTask extends Task {
         START_WOOD("Marvion Phase 1: Fast Wood Gathering"),
         CRAFT_BASIC_MATERIALS("Marvion Phase 2: Rapid 2x2 Crafting (Planks/Sticks/Table)"),
         CRAFT_WOODEN_PICKAXE("Marvion Phase 3: Crafting Wooden Pickaxe"),
+        RECOVER_CRAFTING_TABLE("Marvion: Retrieving Nearby Crafting Table"),
         MINE_COBBLESTONE("Marvion Phase 4: Mining Cobblestone (Holding Wooden Pickaxe)"),
         CRAFT_STONE_TOOLS("Marvion Phase 5: Crafting Stone Pickaxe, Sword & Furnace"),
         MINE_FUEL("Marvion Phase 6: Mining Furnace Fuel"),
@@ -171,11 +174,12 @@ public class MarvionBeatMinecraftTask extends Task {
         if (player == null) return;
 
         ToolTier pickTier = MineBlockTask.getPlayerPickaxeTier(player);
+        boolean hasPickaxe = pickTier.getLevel() >= ToolTier.WOOD.getLevel() || countItemInInventory(mc, "pickaxe") > 0;
 
         String dimension = mc.level != null ? mc.level.dimension().toString().toLowerCase() : "overworld";
 
         int logs = countItemInInventory(mc, "log");
-        int planks = countItemInInventory(mc, "planks");
+        int planks = countItemInInventory(mc, "plank");
         int sticks = countItemInInventory(mc, "stick");
         int tables = countItemInInventory(mc, "crafting_table");
         int furnaces = countItemInInventory(mc, "furnace");
@@ -210,16 +214,20 @@ public class MarvionBeatMinecraftTask extends Task {
             // Overworld Strict Ordered Progression: NO SKIPPING STEPS!
 
             // 1. Wood Logs
-            if (logs < 4 && planks < 8 && pickTier == ToolTier.HAND) {
+            if (logs < 4 && planks < 8 && !hasPickaxe) {
                 currentPhase = SpeedrunPhase.START_WOOD;
             }
             // 2. 2x2 Crafting: Planks, Sticks, Crafting Table
-            else if ((planks < 8 || sticks < 4 || tables < 1) && pickTier == ToolTier.HAND) {
+            else if ((planks < 8 || sticks < 4 || tables < 1) && !hasPickaxe) {
                 currentPhase = SpeedrunPhase.CRAFT_BASIC_MATERIALS;
             }
             // 3. Wooden Pickaxe
-            else if (pickTier == ToolTier.HAND) {
+            else if (!hasPickaxe) {
                 currentPhase = SpeedrunPhase.CRAFT_WOODEN_PICKAXE;
+            }
+            // Marvion Portable Crafting Table Recovery: if table is placed nearby and we have none in inventory, grab it
+            else if (tables < 1 && hasPickaxe && isCraftingTableNearby(mc, player, 8)) {
+                currentPhase = SpeedrunPhase.RECOVER_CRAFTING_TABLE;
             }
             // 4. Cobblestone (Must have Wooden Pickaxe!)
             else if (cobble < 11 && pickTier.getLevel() < ToolTier.STONE.getLevel()) {
@@ -315,7 +323,7 @@ public class MarvionBeatMinecraftTask extends Task {
             for (int i = 0; i < containerSize; i++) {
                 ItemStack stack = menu.getSlot(i).getItem();
                 if (!stack.isEmpty()) {
-                    String name = stack.getItem().toString().toLowerCase();
+                    String name = InventoryManager.getItemName(stack);
                     if (isValuableSpeedrunItem(name)) {
                         mc.gameMode.handleContainerInput(menu.containerId, i, 0, ContainerInput.QUICK_MOVE, player);
                     }
@@ -360,7 +368,7 @@ public class MarvionBeatMinecraftTask extends Task {
         for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.USE_ROW_SLOT_END; i++) {
             ItemStack stack = player.inventoryMenu.getSlot(i).getItem();
             if (stack.isEmpty()) continue;
-            String name = stack.getItem().toString().toLowerCase();
+            String name = InventoryManager.getItemName(stack);
 
             boolean shouldDiscard = false;
 
@@ -490,6 +498,7 @@ public class MarvionBeatMinecraftTask extends Task {
             );
             case CRAFT_BASIC_MATERIALS -> null; // Handled directly in tick via InventoryManager auto-craft
             case CRAFT_WOODEN_PICKAXE -> new CraftInTableTask("wooden_pickaxe");
+            case RECOVER_CRAFTING_TABLE -> new MineBlockTask(mod, "crafting table", "crafting_table", 1);
             case MINE_COBBLESTONE -> new MineBlockTask(
                     mod, "cobblestone",
                     "stone cobblestone deepslate cobbled_deepslate",
@@ -562,13 +571,30 @@ public class MarvionBeatMinecraftTask extends Task {
     private boolean isShieldEquipped(LocalPlayer player) {
         if (player == null) return false;
         ItemStack offhand = player.getOffhandItem();
-        return offhand != null && !offhand.isEmpty() && offhand.getItem().toString().toLowerCase().contains("shield");
+        return offhand != null && !offhand.isEmpty() &&
+                (offhand.is(Items.SHIELD) || InventoryManager.getItemName(offhand).contains("shield"));
     }
 
     private boolean isGoldenHelmetEquipped(LocalPlayer player) {
         if (player == null) return false;
         ItemStack helm = player.inventoryMenu.getSlot(InventoryMenu.ARMOR_SLOT_START).getItem();
-        return !helm.isEmpty() && helm.getItem().toString().toLowerCase().contains("golden_helmet");
+        return !helm.isEmpty() &&
+                (helm.is(Items.GOLDEN_HELMET) || InventoryManager.getItemName(helm).contains("golden_helmet"));
+    }
+
+    private boolean isCraftingTableNearby(Minecraft mc, LocalPlayer player, int radius) {
+        if (mc.level == null || player == null) return false;
+        BlockPos center = player.blockPosition();
+        for (int x = -radius; x <= radius; x++) {
+            for (int y = -3; y <= 3; y++) {
+                for (int z = -radius; z <= radius; z++) {
+                    if (mc.level.getBlockState(center.offset(x, y, z)).is(Blocks.CRAFTING_TABLE)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private void restoreOriginalSettings(Minecraft mc) {
@@ -592,21 +618,7 @@ public class MarvionBeatMinecraftTask extends Task {
 
     private int countItemInInventory(Minecraft mc, String... keywords) {
         if (mc.player == null) return 0;
-        Inventory inv = mc.player.getInventory();
-        int count = 0;
-        for (int i = 0; i < inv.getContainerSize(); i++) {
-            ItemStack stack = inv.getItem(i);
-            if (!stack.isEmpty()) {
-                String name = stack.getItem().toString().toLowerCase();
-                for (String kw : keywords) {
-                    if (name.contains(kw.toLowerCase())) {
-                        count += stack.getCount();
-                        break;
-                    }
-                }
-            }
-        }
-        return count;
+        return InventoryManager.countItems(mc.player, keywords);
     }
 
     @Override
