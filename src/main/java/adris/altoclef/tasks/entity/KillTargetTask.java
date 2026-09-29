@@ -1,0 +1,275 @@
+package adris.altoclef.tasks.entity;
+
+import adris.altoclef.AltoClef;
+import adris.altoclef.control.InventoryManager;
+import adris.altoclef.tasksystem.Task;
+import baritone.api.BaritoneAPI;
+import baritone.api.IBaritone;
+import baritone.api.pathing.goals.GoalNear;
+import baritone.api.utils.input.Input;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.SwingAnimation;
+import net.minecraft.world.phys.Vec3;
+
+public class KillTargetTask extends Task {
+
+    private final String targetQuery;
+    private LivingEntity currentTarget = null;
+    private boolean finished = false;
+    private long lastAttackTime = 0;
+    private boolean shielding = false;
+
+    public KillTargetTask(String targetQuery) {
+        this.targetQuery = targetQuery.trim().toLowerCase();
+    }
+
+    @Override
+    protected void onStart() {
+        finished = false;
+        currentTarget = null;
+        shielding = false;
+        setDebugState("Hunting target: " + targetQuery + "...");
+    }
+
+    @Override
+    protected Task onTick() {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
+        if (player == null || mc.level == null || mc.gameMode == null) return null;
+
+        // If target is dead or despawned, finish or find next
+        if (currentTarget != null && (!currentTarget.isAlive() || currentTarget.isRemoved())) {
+            AltoClef.getInstance().log("Target defeated: " + targetQuery);
+            stopShielding();
+            finished = true;
+            return null;
+        }
+
+        // Search for target if not currently tracking
+        if (currentTarget == null || !currentTarget.isAlive()) {
+            currentTarget = findTarget(mc, player);
+            if (currentTarget == null) {
+                setDebugState("Searching for target: " + targetQuery + "...");
+                return null;
+            }
+        }
+
+        double distSq = player.distanceToSqr(currentTarget);
+        double dist = Math.sqrt(distSq);
+
+        setDebugState("Attacking: " + currentTarget.getName().getString() + " (" + String.format("%.1f", dist) + "m)");
+
+        // 1. Equip best weapon
+        equipBestWeapon(player);
+
+        // 2. Aim at target eye level
+        lookAt(player, currentTarget.getEyePosition());
+
+        // 3. Shield against ranged or heavy counter attacks if we have shield and cooldown allows
+        if (dist > 4.0 && dist < 16.0 && hasShield(player)) {
+            ItemStack targetItem = currentTarget.getMainHandItem();
+            String heldName = InventoryManager.getItemName(targetItem);
+            if (heldName.contains("bow") || heldName.contains("crossbow") || heldName.contains("trident")) {
+                startShielding();
+                approachTarget(currentTarget);
+                return null;
+            }
+        }
+
+        stopShielding();
+
+        // 4. Close the distance using Baritone
+        if (dist > 3.2) {
+            approachTarget(currentTarget);
+        } else {
+            stopApproaching();
+        }
+
+        // 5. Strike target with timed attacks and jump-crits
+        if (dist <= 3.8) {
+            if (player.getAttackStrengthScale(0.0f) >= 0.85f && System.currentTimeMillis() - lastAttackTime > 400) {
+                // Critical hit: jump if on ground
+                if (player.onGround() && !player.isInWater()) {
+                    player.jumpFromGround();
+                }
+
+                mc.gameMode.attack(player, currentTarget);
+                player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
+                lastAttackTime = System.currentTimeMillis();
+            }
+        }
+
+        return null;
+    }
+
+    private LivingEntity findTarget(Minecraft mc, LocalPlayer player) {
+        if (mc.level == null) return null;
+
+        // 1. Check for exact or partial player name match
+        for (Player p : mc.level.players()) {
+            if (p == player || !p.isAlive()) continue;
+            String name = p.getName().getString().toLowerCase();
+            if (targetQuery.equals("@p") || name.equals(targetQuery) || name.contains(targetQuery)) {
+                return p;
+            }
+        }
+
+        // 2. Check for mob type / entity name match
+        LivingEntity closestMob = null;
+        double closestDistSq = Double.MAX_VALUE;
+
+        for (Entity e : mc.level.entitiesForRendering()) {
+            if (!(e instanceof LivingEntity living) || !living.isAlive() || living == player) continue;
+
+            String typePath = BuiltInRegistries.ENTITY_TYPE.getKey(living.getType()).getPath().toLowerCase();
+            String displayName = living.getName().getString().toLowerCase();
+
+            boolean match = false;
+            if (targetQuery.equals("hostile") || targetQuery.equals("monster")) {
+                match = living instanceof Monster;
+            } else if (typePath.contains(targetQuery) || displayName.contains(targetQuery)) {
+                match = true;
+            }
+
+            if (match) {
+                double dSq = player.distanceToSqr(living);
+                if (dSq < closestDistSq) {
+                    closestDistSq = dSq;
+                    closestMob = living;
+                }
+            }
+        }
+
+        return closestMob;
+    }
+
+    private void approachTarget(Entity target) {
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+                if (!baritone.getCustomGoalProcess().isActive() || !baritone.getPathingBehavior().isPathing()) {
+                    baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(target.blockPosition(), 1));
+                }
+                baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, true);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void stopApproaching() {
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null && baritone.getCustomGoalProcess().isActive()) {
+                baritone.getCustomGoalProcess().path();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void equipBestWeapon(LocalPlayer player) {
+        int bestSlot = -1;
+        float bestScore = -1;
+
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (stack.isEmpty()) continue;
+            String name = InventoryManager.getItemName(stack);
+            float score = 0;
+            if (name.contains("netherite_sword")) score = 10;
+            else if (name.contains("diamond_sword")) score = 9;
+            else if (name.contains("iron_sword")) score = 7;
+            else if (name.contains("golden_sword")) score = 5;
+            else if (name.contains("stone_sword")) score = 5;
+            else if (name.contains("wooden_sword")) score = 4;
+            else if (name.contains("axe")) score = 6;
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestSlot = i;
+            }
+        }
+
+        if (bestSlot != -1 && player.getInventory().getSelectedSlot() != bestSlot) {
+            player.getInventory().setSelectedSlot(bestSlot);
+        }
+    }
+
+    private boolean hasShield(LocalPlayer player) {
+        ItemStack off = player.getOffhandItem();
+        if (!off.isEmpty() && (off.is(Items.SHIELD) || InventoryManager.getItemName(off).contains("shield"))) return true;
+        ItemStack main = player.getMainHandItem();
+        return !main.isEmpty() && (main.is(Items.SHIELD) || InventoryManager.getItemName(main).contains("shield"));
+    }
+
+    private void startShielding() {
+        shielding = true;
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+                baritone.getInputOverrideHandler().setInputForceState(Input.SNEAK, true);
+                baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, true);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void stopShielding() {
+        if (!shielding) return;
+        shielding = false;
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+                baritone.getInputOverrideHandler().setInputForceState(Input.SNEAK, false);
+                baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, false);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void lookAt(LocalPlayer player, Vec3 target) {
+        Vec3 diff = target.subtract(player.getEyePosition());
+        double diffX = diff.x;
+        double diffY = diff.y;
+        double diffZ = diff.z;
+        double diffXZ = Math.sqrt(diffX * diffX + diffZ * diffZ);
+
+        float yaw = (float) Math.toDegrees(Math.atan2(-diffX, diffZ));
+        float pitch = (float) Math.toDegrees(-Math.atan2(diffY, diffXZ));
+
+        player.setYRot(yaw);
+        player.setXRot(pitch);
+    }
+
+    @Override
+    protected void onStop(Task interruptTask) {
+        stopShielding();
+        stopApproaching();
+    }
+
+    @Override
+    public boolean isFinished() {
+        return finished;
+    }
+
+    @Override
+    protected boolean isEqual(Task other) {
+        if (other instanceof KillTargetTask task) {
+            return task.targetQuery.equals(this.targetQuery);
+        }
+        return false;
+    }
+
+    @Override
+    protected String toDebugString() {
+        return "Kill Target: " + targetQuery;
+    }
+}

@@ -1,6 +1,8 @@
 package adris.altoclef;
 
 import adris.altoclef.commands.*;
+import adris.altoclef.commands.PunkCommand;
+import adris.altoclef.commands.KillCommand;
 import adris.altoclef.commandsystem.exception.CommandException;
 
 /**
@@ -15,6 +17,8 @@ public class AltoClefCommands {
                 new GamerCommand(),
                 new MarvionCommand(),
                 new HeroCommand(),
+                new PunkCommand(),
+                new KillCommand(),
                 new GetCommand(),
                 new GotoCommand(),
                 new StopCommand(),

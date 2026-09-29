@@ -73,7 +73,7 @@ public class DeathMenuChain extends TaskChain {
 
     @Override
     public boolean isActive() {
-        return handlingDeath;
+        return true;
     }
 
     @Override

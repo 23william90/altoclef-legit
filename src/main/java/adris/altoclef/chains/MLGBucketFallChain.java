@@ -148,7 +148,7 @@ public class MLGBucketFallChain extends SingleTaskChain {
 
     @Override
     public boolean isActive() {
-        return placing || placed;
+        return true;
     }
 
     @Override

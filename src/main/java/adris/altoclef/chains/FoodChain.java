@@ -141,7 +141,7 @@ public class FoodChain extends SingleTaskChain {
 
     @Override
     public boolean isActive() {
-        return eating;
+        return true;
     }
 
     @Override
