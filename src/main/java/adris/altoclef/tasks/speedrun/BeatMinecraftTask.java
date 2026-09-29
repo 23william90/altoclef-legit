@@ -4,6 +4,8 @@ import adris.altoclef.AltoClef;
 import adris.altoclef.tasks.construction.MineBlockTask;
 import adris.altoclef.tasksystem.Task;
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.monster.Enderman;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 
@@ -12,6 +14,7 @@ public class BeatMinecraftTask extends Task {
     private final AltoClef mod;
     private Task currentSubTask;
     private SpeedrunPhase currentPhase = SpeedrunPhase.GATHER_WOOD;
+    private long enteredEndTimestamp = 0;
 
     public enum SpeedrunPhase {
         GATHER_WOOD("Phase 1: Gathering Wood & Crafting Tools"),
@@ -22,7 +25,8 @@ public class BeatMinecraftTask extends Task {
         GATHER_BLAZE_RODS("Phase 6: Nether Fortress & Blaze Rods"),
         GATHER_ENDER_PEARLS("Phase 7: Bartering & Ender Pearls"),
         LOCATE_STRONGHOLD("Phase 8: Locating Stronghold & End Portal"),
-        SLAY_DRAGON("Phase 9: Slaying The Ender Dragon");
+        WAIT_FOR_END_CHUNKS("Phase 9: Waiting For End Chunks To Load"),
+        SLAY_DRAGON("Phase 10: Slaying The Ender Dragon");
 
         private final String description;
 
@@ -41,13 +45,13 @@ public class BeatMinecraftTask extends Task {
 
     @Override
     protected void onStart() {
-        setDebugState("Initializing Gamer Speedrun Task...");
+        setDebugState("Initializing Gamer Speedrun Task (Marvion Optimized)...");
     }
 
     @Override
     protected Task onTick() {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null) {
+        if (mc.player == null || mc.level == null) {
             setDebugState("Waiting for player to load into world...");
             return null;
         }
@@ -55,6 +59,18 @@ public class BeatMinecraftTask extends Task {
         // Determine current phase based on player inventory and dimension
         determinePhase(mc);
         setDebugState(currentPhase.getDescription());
+
+        // In The End: wait for chunks to fully load before acting
+        if (currentPhase == SpeedrunPhase.WAIT_FOR_END_CHUNKS) {
+            if (enteredEndTimestamp == 0) {
+                enteredEndTimestamp = System.currentTimeMillis();
+            }
+            if (System.currentTimeMillis() - enteredEndTimestamp < 2500) {
+                setDebugState("Waiting for End terrain & chunks to stabilize...");
+                return null;
+            }
+            currentPhase = SpeedrunPhase.SLAY_DRAGON;
+        }
 
         // Check if current subtask is finished or needs updating
         if (currentSubTask == null || currentSubTask.isFinished()) {
@@ -74,7 +90,11 @@ public class BeatMinecraftTask extends Task {
         String dimension = mc.level != null ? mc.level.dimension().toString().toLowerCase() : "overworld";
 
         if (dimension.contains("the_end")) {
-            currentPhase = SpeedrunPhase.SLAY_DRAGON;
+            if (enteredEndTimestamp == 0 || System.currentTimeMillis() - enteredEndTimestamp < 2500) {
+                currentPhase = SpeedrunPhase.WAIT_FOR_END_CHUNKS;
+            } else {
+                currentPhase = SpeedrunPhase.SLAY_DRAGON;
+            }
         } else if (dimension.contains("nether")) {
             int blazeRods = countItemInInventory(mc, "blaze_rod");
             int pearls = countItemInInventory(mc, "ender_pearl");
@@ -143,6 +163,7 @@ public class BeatMinecraftTask extends Task {
                     "stone_bricks,cracked_stone_bricks,mossy_stone_bricks",
                     1
             );
+            case WAIT_FOR_END_CHUNKS -> null;
             case SLAY_DRAGON -> new MineBlockTask(
                     mod, "end stone / pillars",
                     "end_stone,obsidian",
@@ -184,6 +205,6 @@ public class BeatMinecraftTask extends Task {
 
     @Override
     protected String toDebugString() {
-        return "Beat Minecraft (Gamer Mode)";
+        return "Beat Minecraft (Marvion Speedrun)";
     }
 }

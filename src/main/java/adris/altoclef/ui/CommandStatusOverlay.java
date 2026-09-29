@@ -40,20 +40,27 @@ public class CommandStatusOverlay {
         Font font = mc.font;
         int x = 6;
         int y = 6;
-        int addX = 6;
+        int addX = 8;
         int addY = font.lineHeight + 2;
+
         int whiteColor = 0xFFFFFFFF;
         int grayColor = 0xFFAAAAAA;
         int yellowColor = 0xFFFFFF55;
         int greenColor = 0xFF55FF55;
+        int cyanColor = 0xFF55FFFF;
+        int goldColor = 0xFFFFAA00;
+        int redColor = 0xFFFF5555;
 
         // Background box estimation
-        int boxWidth = 220;
-        int estimatedLines = 2 + (tasks.isEmpty() ? 1 : Math.min(tasks.size(), 8));
-        int boxHeight = estimatedLines * addY + 6;
-        extractor.fill(x - 3, y - 3, x + boxWidth, y + boxHeight, 0x90000000);
+        int boxWidth = 260;
+        int estimatedLines = 3 + (tasks.isEmpty() ? 1 : Math.min(tasks.size(), 8));
+        int boxHeight = estimatedLines * addY + 8;
 
-        // Header: Timer / Mod tag
+        // Draw translucent dark background & accent top line
+        extractor.fill(x - 4, y - 4, x + boxWidth, y + boxHeight, 0x95000000);
+        extractor.fill(x - 4, y - 4, x + boxWidth, y - 2, 0xFF00AA00); // Green accent border line
+
+        // 1. Header: Timer / Mod info
         String timerStr;
         if (mod.isPaused() && mod.getStoredTask() != null) {
             if (!paused) {
@@ -64,25 +71,39 @@ public class CommandStatusOverlay {
             extractor.text(font, timerStr, x, y, yellowColor, true);
         } else if (mod.getTaskRunner() != null && mod.getTaskRunner().isActive()) {
             lastTime = Instant.now().toEpochMilli();
-            timerStr = "<" + DATE_TIME_FORMATTER.format(Instant.now().minusMillis(runningSince)) + ">";
+            timerStr = "<" + DATE_TIME_FORMATTER.format(Instant.now().minusMillis(runningSince)) + ">  AltoClef 26.3";
             extractor.text(font, timerStr, x, y, greenColor, true);
         } else {
-            timerStr = "[Alto Clef 26.3]";
-            extractor.text(font, timerStr, x, y, greenColor, true);
+            timerStr = "[Alto Clef 26.3 | Marvion Edition]";
+            extractor.text(font, timerStr, x, y, cyanColor, true);
         }
 
         y += addY;
 
-        // Status report
+        // 2. Active Chain Status & Indicator
         String status = (mod.getTaskRunner() != null) ? mod.getTaskRunner().statusReport : "(idle)";
-        extractor.text(font, status, x, y, grayColor, true);
+        int statusColor = grayColor;
+        if (status.contains("Mob Defense")) {
+            statusColor = redColor;
+        } else if (status.contains("Eating") || status.contains("Food")) {
+            statusColor = goldColor;
+        } else if (status.contains("MLG")) {
+            statusColor = cyanColor;
+        } else if (status.contains("User Tasks")) {
+            statusColor = greenColor;
+        }
+        extractor.text(font, status, x, y, statusColor, true);
         y += addY;
 
+        // Subtle separator line
+        extractor.fill(x, y - 1, x + boxWidth - 10, y, 0x40FFFFFF);
+
+        // 3. Task Tree Hierarchy
         if (tasks.isEmpty()) {
             if (mod.getStoredTask() != null && mod.isPaused()) {
-                renderTask(mod.getStoredTask(), extractor, font, x + addX, y);
+                renderTask(mod.getStoredTask(), extractor, font, x + addX, y, cyanColor);
             } else if (mod.getTaskRunner() != null && mod.getTaskRunner().isActive()) {
-                extractor.text(font, " (no task running) ", x + addX, y, whiteColor, true);
+                extractor.text(font, " (no active task) ", x + addX, y, whiteColor, true);
             }
             if (lastTime + 10000 < Instant.now().toEpochMilli()) {
                 runningSince = Instant.now().toEpochMilli();
@@ -94,8 +115,9 @@ public class CommandStatusOverlay {
 
         int maxLines = 8;
         if (tasks.size() <= maxLines) {
-            for (Task task : tasks) {
-                renderTask(task, extractor, font, x, y);
+            for (int i = 0; i < tasks.size(); i++) {
+                int color = (i == 0) ? cyanColor : whiteColor;
+                renderTask(tasks.get(i), extractor, font, x, y, color);
                 x += addX;
                 y += addY;
             }
@@ -105,7 +127,8 @@ public class CommandStatusOverlay {
                     x += addX * 2;
                     extractor.text(font, "...", x, y, whiteColor, true);
                 } else if (i == 0 || i > tasks.size() - maxLines) {
-                    renderTask(tasks.get(i), extractor, font, x, y);
+                    int color = (i == 0) ? cyanColor : whiteColor;
+                    renderTask(tasks.get(i), extractor, font, x, y, color);
                 } else {
                     continue;
                 }
@@ -115,10 +138,10 @@ public class CommandStatusOverlay {
         }
     }
 
-    private void renderTask(Task task, GuiGraphicsExtractor extractor, Font font, int x, int y) {
+    private void renderTask(Task task, GuiGraphicsExtractor extractor, Font font, int x, int y, int taskNameColor) {
         if (task == null) return;
-        String taskName = task.getClass().getSimpleName() + " ";
-        extractor.text(font, taskName, x, y, 0xFF55FFFF, true);
+        String taskName = "• " + task.getClass().getSimpleName() + " ";
+        extractor.text(font, taskName, x, y, taskNameColor, true);
         extractor.text(font, task.toString(), x + font.width(taskName), y, 0xFFFFFFFF, true);
     }
 

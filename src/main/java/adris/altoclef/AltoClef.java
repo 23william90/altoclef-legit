@@ -1,5 +1,9 @@
 package adris.altoclef;
 
+import adris.altoclef.chains.DeathMenuChain;
+import adris.altoclef.chains.FoodChain;
+import adris.altoclef.chains.MLGBucketFallChain;
+import adris.altoclef.chains.MobDefenseChain;
 import adris.altoclef.chains.UserTaskChain;
 import adris.altoclef.commandsystem.CommandExecutor;
 import adris.altoclef.commandsystem.TabCompleter;
@@ -25,6 +29,10 @@ public class AltoClef implements ModInitializer {
     private static CommandExecutor commandExecutor;
     private TaskRunner taskRunner;
     private UserTaskChain userTaskChain;
+    private MobDefenseChain mobDefenseChain;
+    private FoodChain foodChain;
+    private MLGBucketFallChain mlgBucketFallChain;
+    private DeathMenuChain deathMenuChain;
     private CommandStatusOverlay commandStatusOverlay;
     private Task storedTask;
     private Settings settings = new Settings();
@@ -70,7 +78,20 @@ public class AltoClef implements ModInitializer {
 
         taskRunner = new TaskRunner(this);
         userTaskChain = new UserTaskChain(taskRunner);
+        mobDefenseChain = new MobDefenseChain(taskRunner);
+        foodChain = new FoodChain(taskRunner);
+        mlgBucketFallChain = new MLGBucketFallChain(taskRunner);
+        deathMenuChain = new DeathMenuChain(taskRunner);
         commandStatusOverlay = new CommandStatusOverlay();
+
+        // Configure Baritone rendering & lines for best visuals
+        try {
+            BaritoneAPI.getSettings().renderPath.value = true;
+            BaritoneAPI.getSettings().renderPathAsLine.value = true;
+            BaritoneAPI.getSettings().renderGoal.value = true;
+            BaritoneAPI.getSettings().renderSelectionBoxes.value = true;
+        } catch (Throwable ignored) {
+        }
 
         Settings.load(newSettings -> {
             settings = newSettings;
@@ -96,7 +117,7 @@ public class AltoClef implements ModInitializer {
             }
         });
 
-        Debug.logInternal("AltoClef 26.3 initialized successfully with TaskRunner and Overlay!");
+        Debug.logInternal("AltoClef 26.3 initialized successfully with MobDefense, FoodChain, and MLG systems!");
     }
 
     private void onClientTick() {
@@ -183,6 +204,22 @@ public class AltoClef implements ModInitializer {
 
     public UserTaskChain getUserTaskChain() {
         return userTaskChain;
+    }
+
+    public MobDefenseChain getMobDefenseChain() {
+        return mobDefenseChain;
+    }
+
+    public FoodChain getFoodChain() {
+        return foodChain;
+    }
+
+    public MLGBucketFallChain getMlgBucketFallChain() {
+        return mlgBucketFallChain;
+    }
+
+    public DeathMenuChain getDeathMenuChain() {
+        return deathMenuChain;
     }
 
     public IBaritone getClientBaritone() {
