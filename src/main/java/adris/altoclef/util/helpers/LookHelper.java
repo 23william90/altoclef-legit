@@ -80,6 +80,27 @@ public interface LookHelper {
             }
         }
 
+        // Strict line of sight check when legitMovement is enabled: CANNOT interact or break through walls!
+        if (reachableRotation.isPresent() && AltoClef.getInstance() != null && AltoClef.getInstance().getModSettings() != null && AltoClef.getInstance().getModSettings().isLegitMovement()) {
+            Vec3d cameraPos = context.player().getCameraPosVec(1.0F);
+            Vec3d lookVec = calcLookDirectionFromRotation(reachableRotation.get());
+            double reachDistance = context.playerController().getBlockReachDistance();
+            Vec3d reachEnd = cameraPos.add(lookVec.multiply(reachDistance));
+
+            RaycastContext rayCtx = new RaycastContext(
+                    cameraPos,
+                    reachEnd,
+                    RaycastContext.ShapeType.OUTLINE,
+                    RaycastContext.FluidHandling.NONE,
+                    context.player()
+            );
+            BlockHitResult hit = context.world().raycast(rayCtx);
+            if (hit == null || hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(target)) {
+                // Wall or obstruction in between! Cannot break or interact through wall in legit movement mode!
+                return Optional.empty();
+            }
+        }
+
         // Return the reachable rotation
         return reachableRotation;
     }
@@ -536,9 +557,50 @@ public interface LookHelper {
             mod.getClientBaritone().getLookBehavior().updateTarget(rotation, true);
         }
 
-        // Set the player's yaw and pitch
-        mod.getPlayer().setYaw(rotation.getYaw());
-        mod.getPlayer().setPitch(rotation.getPitch());
+        if (mod.getModSettings() != null && mod.getModSettings().isLegitMovement()) {
+            if (!withBaritone) {
+                smoothRotateTowards(mod, rotation);
+            }
+            // If withBaritone is true, Baritone's smoothLook handles interpolation without snapping!
+        } else {
+            // Set the player's yaw and pitch instantly
+            mod.getPlayer().setYaw(rotation.getYaw());
+            mod.getPlayer().setPitch(rotation.getPitch());
+        }
+    }
+
+    /**
+     * Smoothly rotates the player's camera towards the target rotation using natural,
+     * human-like mouse kinematics without snapping.
+     *
+     * @param mod    The AltoClef mod instance.
+     * @param target The target rotation (yaw, pitch).
+     */
+    static void smoothRotateTowards(AltoClef mod, Rotation target) {
+        ClientPlayerEntity player = mod.getPlayer();
+        if (player == null || target == null) return;
+
+        float currentYaw = player.getYaw();
+        float currentPitch = player.getPitch();
+
+        float deltaYaw = MathHelper.wrapDegrees(target.getYaw() - currentYaw);
+        float deltaPitch = target.getPitch() - currentPitch;
+
+        float maxSpeed = mod.getModSettings() != null ? mod.getModSettings().getLegitRotationSpeed() : 18.0f;
+
+        float absYaw = Math.abs(deltaYaw);
+        float absPitch = Math.abs(deltaPitch);
+
+        // Smooth ease-out curve: faster when distant, easing down gently when near target
+        float stepYaw = Math.min(absYaw * 0.40f + 1.2f, maxSpeed);
+        float stepPitch = Math.min(absPitch * 0.40f + 1.0f, maxSpeed * 0.75f);
+
+        float nextYaw = absYaw <= stepYaw ? target.getYaw() : currentYaw + Math.signum(deltaYaw) * stepYaw;
+        float nextPitch = absPitch <= stepPitch ? target.getPitch() : currentPitch + Math.signum(deltaPitch) * stepPitch;
+        nextPitch = MathHelper.clamp(nextPitch, -90.0f, 90.0f);
+
+        player.setYaw(nextYaw);
+        player.setPitch(nextPitch);
     }
 
     /**
@@ -547,14 +609,16 @@ public interface LookHelper {
      * @param rotation The desired rotation to look at.
      */
     static void lookAt(Rotation rotation) {
-        // Update the target rotation in the LookBehavior
-        AltoClef.getInstance().getClientBaritone().getLookBehavior().updateTarget(rotation, true);
-
-        // Set the player's yaw and pitch
-        ClientPlayerEntity player = AltoClef.getInstance().getPlayer();
-
-        player.setYaw(rotation.getYaw());
-        player.setPitch(rotation.getPitch());
+        AltoClef mod = AltoClef.getInstance();
+        if (mod != null) {
+            lookAt(mod, rotation, true);
+        } else {
+            ClientPlayerEntity player = MinecraftClient.getInstance().player;
+            if (player != null) {
+                player.setYaw(rotation.getYaw());
+                player.setPitch(rotation.getPitch());
+            }
+        }
     }
 
     /**

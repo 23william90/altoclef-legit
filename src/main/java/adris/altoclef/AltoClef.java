@@ -27,6 +27,7 @@ import adris.altoclef.ui.CommandStatusOverlay;
 import adris.altoclef.ui.MessagePriority;
 import adris.altoclef.ui.MessageSender;
 import adris.altoclef.util.helpers.InputHelper;
+import adris.altoclef.util.helpers.LookHelper;
 import adris.altoclef.util.helpers.StorageHelper;
 import baritone.Baritone;
 import baritone.altoclef.AltoClefSettings;
@@ -175,6 +176,7 @@ public class AltoClef implements ModInitializer {
             getExtraBaritoneSettings().avoidBlockBreak(blockPos -> settings.isPositionExplicitlyProtected(blockPos));
             getExtraBaritoneSettings().avoidBlockPlace(blockPos -> settings.isPositionExplicitlyProtected(blockPos));
             getExtraBaritoneSettings().getForceSaveToolPredicates().add((state, item) -> StorageHelper.shouldSaveStack(this, state.getBlock(), item));
+            applyLegitMovementSettings(settings.isLegitMovement());
         });
 
         // Receive + cancel chat
@@ -226,6 +228,10 @@ public class AltoClef implements ModInitializer {
         trackerManager.tick();
         blockScanner.tick();
         taskRunner.tick();
+
+        if (settings != null && settings.isLegitMovement() && inGame()) {
+            tickLegitMovement();
+        }
 
         messageSender.tick();
 
@@ -299,6 +305,43 @@ public class AltoClef implements ModInitializer {
         getClientBaritoneSettings().planAheadFailureTimeoutMS.reset();
         // Was 100
         getClientBaritoneSettings().movementTimeoutTicks.reset();
+    }
+
+    public void applyLegitMovementSettings(boolean enabled) {
+        if (enabled) {
+            getClientBaritoneSettings().legitMine.value = true;
+            getClientBaritoneSettings().smoothLook.value = true;
+            getClientBaritoneSettings().smoothLookTicks.value = 5;
+            getClientBaritoneSettings().antiCheatCompatibility.value = true;
+            getClientBaritoneSettings().remainWithExistingLookDirection.value = false;
+            getClientBaritoneSettings().freeLook.value = false;
+        } else {
+            getClientBaritoneSettings().legitMine.value = false;
+            getClientBaritoneSettings().smoothLook.value = false;
+            getClientBaritoneSettings().freeLook.value = false;
+        }
+    }
+
+    private void tickLegitMovement() {
+        ClientPlayerEntity player = getPlayer();
+        if (player == null) return;
+
+        net.minecraft.util.math.Vec3d vel = player.getVelocity();
+        double horizontalSpeedSq = vel.x * vel.x + vel.z * vel.z;
+
+        if (horizontalSpeedSq > 0.002) {
+            float moveYaw = (float) Math.toDegrees(Math.atan2(-vel.x, vel.z));
+            float angleDiff = Math.abs(net.minecraft.util.math.MathHelper.wrapDegrees(moveYaw - player.getYaw()));
+
+            if (angleDiff > 45.0f && inputControls.isHeldDown(baritone.api.utils.input.Input.SPRINT)) {
+                inputControls.release(baritone.api.utils.input.Input.SPRINT);
+            }
+
+            if (!extraController.isBreakingBlock() && !foodChain.isTryingToEat() && MinecraftClient.getInstance().currentScreen == null) {
+                float targetPitch = net.minecraft.util.math.MathHelper.clamp(player.getPitch(), -15.0f, 25.0f);
+                LookHelper.smoothRotateTowards(this, new baritone.api.utils.Rotation(moveYaw, targetPitch));
+            }
+        }
     }
 
     // List all command sources here.

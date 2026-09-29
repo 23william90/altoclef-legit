@@ -98,6 +98,21 @@ public class Settings implements IFailableConfigFile {
     private float containerItemMoveDelay = 0.2f;
 
     /**
+     * If true, forces the bot to move like a legitimate human player:
+     * - Must look in the direction it's moving (natural yaw/pitch heading)
+     * - Cannot break blocks or interact with things through walls (strict line of sight)
+     * - Movement and rotations are not snappy; slower, smooth mouse-like camera interpolation
+     * - Synchronizes Baritone antiCheatCompatibility, legitMine, and smoothLook settings
+     */
+    private boolean legitMovement = false;
+
+    /**
+     * Maximum rotation speed in degrees per tick for legit movement mode.
+     * Lower values produce slower, more human-like rotations (e.g. 15.0f - 20.0f).
+     */
+    private float legitRotationSpeed = 18.0f;
+
+    /**
      * If true, use Minecraft's crafting recipe book to place items into
      * the crafting table (should be much faster as it's almost instant)
      * <p>
@@ -648,6 +663,25 @@ public class Settings implements IFailableConfigFile {
 
     public BlockPos getHomeBasePosition() {
         return homeBasePosition;
+    }
+
+    public boolean isLegitMovement() {
+        return legitMovement;
+    }
+
+    public void setLegitMovement(boolean legitMovement) {
+        this.legitMovement = legitMovement;
+        if (AltoClef.getInstance() != null) {
+            AltoClef.getInstance().applyLegitMovementSettings(legitMovement);
+        }
+    }
+
+    public float getLegitRotationSpeed() {
+        return legitRotationSpeed;
+    }
+
+    public void setLegitRotationSpeed(float legitRotationSpeed) {
+        this.legitRotationSpeed = legitRotationSpeed;
     }
 
     @Override
