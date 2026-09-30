@@ -121,6 +121,15 @@ public class MarvionBeatMinecraftTask extends Task {
             return null;
         }
 
+        if (player.isDeadOrDying()) {
+            if (currentSubTask != null) {
+                currentSubTask.stop(null);
+                currentSubTask = null;
+            }
+            setDebugState("Player died. Waiting for respawn...");
+            return null;
+        }
+
         // Marvion Error-Safety Routine 1: Structure Fast-Looting (Ruined Portals & Desert Temples)
         scanAndLootChests(mc, player);
 
@@ -130,20 +139,13 @@ public class MarvionBeatMinecraftTask extends Task {
             pruneInventoryClutter(mc, player);
         }
 
+        // If an active subtask is in progress, continue executing it until completion!
+        if (currentSubTask != null && !currentSubTask.isFinished()) {
+            return currentSubTask;
+        }
+
         SpeedrunPhase oldPhase = currentPhase;
-        boolean isCraftingActive = false;
-        if (currentSubTask instanceof CraftInTableTask craftTask && !craftTask.isFinished()) {
-            if (craftTask.hasRequiredIngredients(player)) {
-                isCraftingActive = true;
-            } else {
-                craftTask.stop(null);
-                currentSubTask = null;
-            }
-        }
-        boolean isSmeltingActive = (currentSubTask instanceof SmeltInFurnaceTask smeltTask && !smeltTask.isFinished());
-        if (!isCraftingActive && !isSmeltingActive) {
-            determinePhase(mc);
-        }
+        determinePhase(mc);
         setDebugState(currentPhase.getDescription());
 
         // Apply Marvion Dynamic Render Distance & Entity Distance Manipulations
@@ -251,8 +253,6 @@ public class MarvionBeatMinecraftTask extends Task {
             else if (!hasPickaxe) {
                 if (totalWoodPlanks < 8) {
                     currentPhase = SpeedrunPhase.START_WOOD;
-                } else if (planks < 3 || sticks < 2 || !hasTable) {
-                    currentPhase = SpeedrunPhase.CRAFT_BASIC_MATERIALS;
                 } else {
                     currentPhase = SpeedrunPhase.CRAFT_WOODEN_PICKAXE;
                 }
@@ -546,8 +546,7 @@ public class MarvionBeatMinecraftTask extends Task {
                     "oak_log birch_log spruce_log jungle_log acacia_log dark_oak_log mangrove_log cherry_log pale_oak_log",
                     12
             );
-            case CRAFT_BASIC_MATERIALS -> null; // Handled directly in tick via InventoryManager auto-craft
-            case CRAFT_WOODEN_PICKAXE -> new CraftInTableTask("wooden_pickaxe");
+            case CRAFT_BASIC_MATERIALS, CRAFT_WOODEN_PICKAXE -> new CraftInTableTask("wooden_pickaxe");
             case RECOVER_CRAFTING_TABLE -> new MineBlockTask(mod, "crafting table", "crafting_table", 1);
             case MINE_COBBLESTONE -> new MineBlockTask(
                     mod, "cobblestone",

@@ -25,6 +25,7 @@ public class BeatMinecraftTask extends Task {
         GATHER_WOOD("Phase 1: Gathering Wood Logs"),
         CRAFT_BASIC_MATERIALS("Phase 2: Crafting Planks, Sticks & Crafting Table"),
         CRAFT_WOODEN_PICKAXE("Phase 3: Crafting Wooden Pickaxe"),
+        RECOVER_CRAFTING_TABLE("Phase 3b: Recovering Crafting Table"),
         MINE_COBBLESTONE("Phase 4: Mining Cobblestone (Holding Wooden Pickaxe)"),
         CRAFT_STONE_TOOLS("Phase 5: Crafting Stone Pickaxe, Sword & Furnace"),
         MINE_FUEL("Phase 6: Mining Coal / Furnace Fuel"),
@@ -71,20 +72,22 @@ public class BeatMinecraftTask extends Task {
             return null;
         }
 
-        SpeedrunPhase oldPhase = currentPhase;
-        boolean isCraftingActive = false;
-        if (currentSubTask instanceof CraftInTableTask craftTask && !craftTask.isFinished()) {
-            if (craftTask.hasRequiredIngredients(mc.player)) {
-                isCraftingActive = true;
-            } else {
-                craftTask.stop(null);
+        if (mc.player.isDeadOrDying()) {
+            if (currentSubTask != null) {
+                currentSubTask.stop(null);
                 currentSubTask = null;
             }
+            setDebugState("Player died. Waiting for respawn...");
+            return null;
         }
-        boolean isSmeltingActive = (currentSubTask instanceof SmeltInFurnaceTask smeltTask && !smeltTask.isFinished());
-        if (!isCraftingActive && !isSmeltingActive) {
-            determinePhase(mc);
+
+        // If an active subtask is in progress, continue executing it until completion!
+        if (currentSubTask != null && !currentSubTask.isFinished()) {
+            return currentSubTask;
         }
+
+        SpeedrunPhase oldPhase = currentPhase;
+        determinePhase(mc);
         setDebugState(currentPhase.getDescription());
 
         // In The End: wait for chunks to fully load before acting
@@ -173,11 +176,13 @@ public class BeatMinecraftTask extends Task {
             else if (!hasPickaxe) {
                 if (totalWoodPlanks < 8) {
                     currentPhase = SpeedrunPhase.GATHER_WOOD;
-                } else if (planks < 3 || sticks < 2 || !hasTable) {
-                    currentPhase = SpeedrunPhase.CRAFT_BASIC_MATERIALS;
                 } else {
                     currentPhase = SpeedrunPhase.CRAFT_WOODEN_PICKAXE;
                 }
+            }
+            // Step 2: Portable Crafting Table Recovery (pick up nearby table so bot carries it)
+            else if (tables < 1 && isCraftingTableNearby(mc, player, 10)) {
+                currentPhase = SpeedrunPhase.RECOVER_CRAFTING_TABLE;
             }
             // Step 2: Cobblestone (Must have Wooden Pickaxe!)
             else if (cobble < 14 && pickTier.getLevel() < ToolTier.STONE.getLevel()) {
@@ -245,8 +250,8 @@ public class BeatMinecraftTask extends Task {
                     "oak_log birch_log spruce_log jungle_log acacia_log dark_oak_log mangrove_log cherry_log pale_oak_log",
                     12
             );
-            case CRAFT_BASIC_MATERIALS -> null; // Handled directly in tick via InventoryManager auto-craft
-            case CRAFT_WOODEN_PICKAXE -> new CraftInTableTask("wooden_pickaxe");
+            case CRAFT_BASIC_MATERIALS, CRAFT_WOODEN_PICKAXE -> new CraftInTableTask("wooden_pickaxe");
+            case RECOVER_CRAFTING_TABLE -> new MineBlockTask(mod, "crafting table", "crafting_table", 1);
             case MINE_COBBLESTONE -> new MineBlockTask(
                     mod, "cobblestone",
                     "stone cobblestone deepslate cobbled_deepslate",

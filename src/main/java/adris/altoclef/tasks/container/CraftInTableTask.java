@@ -59,56 +59,122 @@ public class CraftInTableTask extends Task {
     }
 
     static {
-        // Wooden Pickaxe: 3 planks (1,2,3), 2 sticks (5,8)
-        Map<Integer, String> wPick = Map.of(1, "plank", 2, "plank", 3, "plank", 5, "stick", 8, "stick");
+        // Wooden Pickaxe: 3 planks (1,2,3) FIRST, then 2 sticks (5,8)
+        Map<Integer, String> wPick = new LinkedHashMap<>();
+        wPick.put(1, "plank");
+        wPick.put(2, "plank");
+        wPick.put(3, "plank");
+        wPick.put(5, "stick");
+        wPick.put(8, "stick");
         RECIPES.put("wooden_pickaxe", new RecipeDef(wPick, Map.of("plank", 3, "stick", 2)));
 
-        // Stone Pickaxe: 3 cobble (1,2,3), 2 sticks (5,8)
-        Map<Integer, String> sPick = Map.of(1, "cobble", 2, "cobble", 3, "cobble", 5, "stick", 8, "stick");
+        // Stone Pickaxe: 3 cobble (1,2,3) FIRST, then 2 sticks (5,8)
+        Map<Integer, String> sPick = new LinkedHashMap<>();
+        sPick.put(1, "cobble");
+        sPick.put(2, "cobble");
+        sPick.put(3, "cobble");
+        sPick.put(5, "stick");
+        sPick.put(8, "stick");
         RECIPES.put("stone_pickaxe", new RecipeDef(sPick, Map.of("cobble", 3, "stick", 2)));
 
         // Stone Sword: 2 cobble (2,5), 1 stick (8)
-        Map<Integer, String> sSword = Map.of(2, "cobble", 5, "cobble", 8, "stick");
+        Map<Integer, String> sSword = new LinkedHashMap<>();
+        sSword.put(2, "cobble");
+        sSword.put(5, "cobble");
+        sSword.put(8, "stick");
         RECIPES.put("stone_sword", new RecipeDef(sSword, Map.of("cobble", 2, "stick", 1)));
 
         // Furnace: 8 cobble (1,2,3,4,6,7,8,9)
-        Map<Integer, String> furnace = Map.of(1, "cobble", 2, "cobble", 3, "cobble", 4, "cobble", 6, "cobble", 7, "cobble", 8, "cobble", 9, "cobble");
+        Map<Integer, String> furnace = new LinkedHashMap<>();
+        furnace.put(1, "cobble");
+        furnace.put(2, "cobble");
+        furnace.put(3, "cobble");
+        furnace.put(4, "cobble");
+        furnace.put(6, "cobble");
+        furnace.put(7, "cobble");
+        furnace.put(8, "cobble");
+        furnace.put(9, "cobble");
         RECIPES.put("furnace", new RecipeDef(furnace, Map.of("cobble", 8)));
 
-        // Iron Pickaxe: 3 iron ingots (1,2,3), 2 sticks (5,8)
-        Map<Integer, String> iPick = Map.of(1, "iron_ingot", 2, "iron_ingot", 3, "iron_ingot", 5, "stick", 8, "stick");
+        // Iron Pickaxe: 3 iron ingots (1,2,3) FIRST, then 2 sticks (5,8)
+        Map<Integer, String> iPick = new LinkedHashMap<>();
+        iPick.put(1, "iron_ingot");
+        iPick.put(2, "iron_ingot");
+        iPick.put(3, "iron_ingot");
+        iPick.put(5, "stick");
+        iPick.put(8, "stick");
         RECIPES.put("iron_pickaxe", new RecipeDef(iPick, Map.of("iron_ingot", 3, "stick", 2)));
 
         // Iron Sword: 2 iron ingots (2,5), 1 stick (8)
-        Map<Integer, String> iSword = Map.of(2, "iron_ingot", 5, "iron_ingot", 8, "stick");
+        Map<Integer, String> iSword = new LinkedHashMap<>();
+        iSword.put(2, "iron_ingot");
+        iSword.put(5, "iron_ingot");
+        iSword.put(8, "stick");
         RECIPES.put("iron_sword", new RecipeDef(iSword, Map.of("iron_ingot", 2, "stick", 1)));
 
         // Shield: 6 planks (1,3,4,5,6,8), 1 iron ingot (2)
-        Map<Integer, String> shield = Map.of(1, "plank", 2, "iron_ingot", 3, "plank", 4, "plank", 5, "plank", 6, "plank", 8, "plank");
+        Map<Integer, String> shield = new LinkedHashMap<>();
+        shield.put(1, "plank");
+        shield.put(3, "plank");
+        shield.put(4, "plank");
+        shield.put(5, "plank");
+        shield.put(6, "plank");
+        shield.put(8, "plank");
+        shield.put(2, "iron_ingot");
         RECIPES.put("shield", new RecipeDef(shield, Map.of("plank", 6, "iron_ingot", 1)));
 
         // Bucket: 3 iron ingots (4,6,8)
-        Map<Integer, String> bucket = Map.of(4, "iron_ingot", 6, "iron_ingot", 8, "iron_ingot");
+        Map<Integer, String> bucket = new LinkedHashMap<>();
+        bucket.put(4, "iron_ingot");
+        bucket.put(6, "iron_ingot");
+        bucket.put(8, "iron_ingot");
         RECIPES.put("bucket", new RecipeDef(bucket, Map.of("iron_ingot", 3)));
 
         // Iron Chestplate: 8 iron ingots (1,3,4,5,6,7,8,9)
-        Map<Integer, String> iChest = Map.of(1, "iron_ingot", 3, "iron_ingot", 4, "iron_ingot", 5, "iron_ingot", 6, "iron_ingot", 7, "iron_ingot", 8, "iron_ingot", 9, "iron_ingot");
+        Map<Integer, String> iChest = new LinkedHashMap<>();
+        iChest.put(1, "iron_ingot");
+        iChest.put(3, "iron_ingot");
+        iChest.put(4, "iron_ingot");
+        iChest.put(5, "iron_ingot");
+        iChest.put(6, "iron_ingot");
+        iChest.put(7, "iron_ingot");
+        iChest.put(8, "iron_ingot");
+        iChest.put(9, "iron_ingot");
         RECIPES.put("iron_chestplate", new RecipeDef(iChest, Map.of("iron_ingot", 8)));
 
-        // Diamond Pickaxe: 3 diamonds (1,2,3), 2 sticks (5,8)
-        Map<Integer, String> dPick = Map.of(1, "diamond", 2, "diamond", 3, "diamond", 5, "stick", 8, "stick");
+        // Diamond Pickaxe: 3 diamonds (1,2,3) FIRST, then 2 sticks (5,8)
+        Map<Integer, String> dPick = new LinkedHashMap<>();
+        dPick.put(1, "diamond");
+        dPick.put(2, "diamond");
+        dPick.put(3, "diamond");
+        dPick.put(5, "stick");
+        dPick.put(8, "stick");
         RECIPES.put("diamond_pickaxe", new RecipeDef(dPick, Map.of("diamond", 3, "stick", 2)));
 
         // Diamond Sword: 2 diamonds (2,5), 1 stick (8)
-        Map<Integer, String> dSword = Map.of(2, "diamond", 5, "diamond", 8, "stick");
+        Map<Integer, String> dSword = new LinkedHashMap<>();
+        dSword.put(2, "diamond");
+        dSword.put(5, "diamond");
+        dSword.put(8, "stick");
         RECIPES.put("diamond_sword", new RecipeDef(dSword, Map.of("diamond", 2, "stick", 1)));
 
         // Golden Helmet: 5 gold ingots (1,2,3,4,6)
-        Map<Integer, String> gHelm = Map.of(1, "gold_ingot", 2, "gold_ingot", 3, "gold_ingot", 4, "gold_ingot", 6, "gold_ingot");
+        Map<Integer, String> gHelm = new LinkedHashMap<>();
+        gHelm.put(1, "gold_ingot");
+        gHelm.put(2, "gold_ingot");
+        gHelm.put(3, "gold_ingot");
+        gHelm.put(4, "gold_ingot");
+        gHelm.put(6, "gold_ingot");
         RECIPES.put("golden_helmet", new RecipeDef(gHelm, Map.of("gold_ingot", 5)));
 
         // Bed: 3 wool (4,5,6), 3 planks (7,8,9)
-        Map<Integer, String> bed = Map.of(4, "wool", 5, "wool", 6, "wool", 7, "plank", 8, "plank", 9, "plank");
+        Map<Integer, String> bed = new LinkedHashMap<>();
+        bed.put(4, "wool");
+        bed.put(5, "wool");
+        bed.put(6, "wool");
+        bed.put(7, "plank");
+        bed.put(8, "plank");
+        bed.put(9, "plank");
         RECIPES.put("bed", new RecipeDef(bed, Map.of("wool", 3, "plank", 3)));
     }
 
@@ -553,6 +619,15 @@ public class CraftInTableTask extends Task {
         if (!menu.getCarried().isEmpty()) {
             ItemStack carriedStack = menu.getCarried();
             String carriedName = getItemName(carriedStack);
+
+            if (currentIngredientKeyword == null) {
+                for (String kw : recipe.requiredCounts.keySet()) {
+                    if (matchesKeyword(carriedName, kw)) {
+                        currentIngredientKeyword = kw;
+                        break;
+                    }
+                }
+            }
 
             // Is the carried item an ingredient we need to place into an unpopulated grid slot?
             if (currentIngredientKeyword != null && matchesKeyword(carriedName, currentIngredientKeyword)) {
@@ -1040,8 +1115,21 @@ public class CraftInTableTask extends Task {
         if (player == null) return false;
         RecipeDef recipe = RECIPES.get(itemTarget);
         if (recipe == null) return false;
+        CraftingMenu menu = (player.containerMenu instanceof CraftingMenu cm) ? cm : null;
         for (Map.Entry<String, Integer> req : recipe.requiredCounts.entrySet()) {
             int count = InventoryManager.countItems(player, req.getKey());
+            if (menu != null) {
+                ItemStack carried = menu.getCarried();
+                if (!carried.isEmpty() && matchesKeyword(getItemName(carried), req.getKey())) {
+                    count += carried.getCount();
+                }
+                for (int s = 1; s <= 9; s++) {
+                    ItemStack inSlot = menu.getSlot(s).getItem();
+                    if (!inSlot.isEmpty() && matchesKeyword(getItemName(inSlot), req.getKey())) {
+                        count += inSlot.getCount();
+                    }
+                }
+            }
             if (req.getKey().equals("stick")) {
                 if (count < req.getValue()) {
                     int planks = InventoryManager.countItems(player, "plank");

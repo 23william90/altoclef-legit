@@ -53,7 +53,7 @@ public class InventoryManager {
         InventoryMenu menu = player.inventoryMenu;
         if (menu == null || !menu.getCarried().isEmpty()) return;
 
-        int planks = countItems(player, "planks");
+        int planks = countItems(player, "plank");
         int logs = countItems(player, "log");
         int sticks = countItems(player, "stick");
         int tables = countItems(player, "crafting_table");
@@ -67,20 +67,21 @@ public class InventoryManager {
             }
         }
 
-        // 2. If we have planks and < 4 sticks, craft sticks!
-        if (sticks < 4 && planks >= 2) {
-            int plankSlot = findSlot(menu, "planks");
-            if (plankSlot != -1) {
-                craft2x2Sticks(mc, player, plankSlot);
+        // 2. If we have planks and 0 crafting tables, craft a crafting table FIRST!
+        if (tables < 1 && planks >= 4) {
+            int plankSlot = findSlot(menu, "plank");
+            if (plankSlot != -1 && menu.getSlot(plankSlot).getItem().getCount() >= 4) {
+                craft2x2CraftingTable(mc, player, plankSlot);
                 return;
             }
         }
 
-        // 3. If we have planks and 0 crafting tables, craft a crafting table!
-        if (tables < 1 && planks >= 4) {
-            int plankSlot = findSlot(menu, "planks");
-            if (plankSlot != -1 && menu.getSlot(plankSlot).getItem().getCount() >= 4) {
-                craft2x2CraftingTable(mc, player, plankSlot);
+        // 3. If we have planks and < 4 sticks, craft sticks!
+        if (sticks < 4 && planks >= 2) {
+            int plankSlot = findSlot(menu, "plank");
+            if (plankSlot != -1) {
+                craft2x2Sticks(mc, player, plankSlot);
+                return;
             }
         }
     }
