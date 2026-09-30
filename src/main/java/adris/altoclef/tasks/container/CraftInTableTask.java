@@ -52,6 +52,7 @@ public class CraftInTableTask extends Task {
     private int craftingMenuOpenCloseLoops = 0;
     private boolean wasMenuOpen = false;
     private int missingIngredientTicks = 0;
+    private int lastTargetCount = -1;
 
     private static final Map<String, RecipeDef> RECIPES = new HashMap<>();
 
@@ -75,6 +76,37 @@ public class CraftInTableTask extends Task {
         wPick.put(8, "stick");
         RECIPES.put("wooden_pickaxe", new RecipeDef(wPick, Map.of("plank", 3, "stick", 2)));
 
+        // Wooden Sword: 2 planks (2,5), 1 stick (8)
+        Map<Integer, String> wSword = new LinkedHashMap<>();
+        wSword.put(2, "plank");
+        wSword.put(5, "plank");
+        wSword.put(8, "stick");
+        RECIPES.put("wooden_sword", new RecipeDef(wSword, Map.of("plank", 2, "stick", 1)));
+
+        // Wooden Axe: 3 planks (1,2,4), 2 sticks (5,8)
+        Map<Integer, String> wAxe = new LinkedHashMap<>();
+        wAxe.put(1, "plank");
+        wAxe.put(2, "plank");
+        wAxe.put(4, "plank");
+        wAxe.put(5, "stick");
+        wAxe.put(8, "stick");
+        RECIPES.put("wooden_axe", new RecipeDef(wAxe, Map.of("plank", 3, "stick", 2)));
+
+        // Wooden Shovel: 1 plank (2), 2 sticks (5,8)
+        Map<Integer, String> wShovel = new LinkedHashMap<>();
+        wShovel.put(2, "plank");
+        wShovel.put(5, "stick");
+        wShovel.put(8, "stick");
+        RECIPES.put("wooden_shovel", new RecipeDef(wShovel, Map.of("plank", 1, "stick", 2)));
+
+        // Wooden Hoe: 2 planks (1,2), 2 sticks (5,8)
+        Map<Integer, String> wHoe = new LinkedHashMap<>();
+        wHoe.put(1, "plank");
+        wHoe.put(2, "plank");
+        wHoe.put(5, "stick");
+        wHoe.put(8, "stick");
+        RECIPES.put("wooden_hoe", new RecipeDef(wHoe, Map.of("plank", 2, "stick", 2)));
+
         // Stone Pickaxe: 3 cobble (1,2,3) FIRST, then 2 sticks (5,8)
         Map<Integer, String> sPick = new LinkedHashMap<>();
         sPick.put(1, "cobble");
@@ -90,6 +122,30 @@ public class CraftInTableTask extends Task {
         sSword.put(5, "cobble");
         sSword.put(8, "stick");
         RECIPES.put("stone_sword", new RecipeDef(sSword, Map.of("cobble", 2, "stick", 1)));
+
+        // Stone Axe: 3 cobble (1,2,4), 2 sticks (5,8)
+        Map<Integer, String> sAxe = new LinkedHashMap<>();
+        sAxe.put(1, "cobble");
+        sAxe.put(2, "cobble");
+        sAxe.put(4, "cobble");
+        sAxe.put(5, "stick");
+        sAxe.put(8, "stick");
+        RECIPES.put("stone_axe", new RecipeDef(sAxe, Map.of("cobble", 3, "stick", 2)));
+
+        // Stone Shovel: 1 cobble (2), 2 sticks (5,8)
+        Map<Integer, String> sShovel = new LinkedHashMap<>();
+        sShovel.put(2, "cobble");
+        sShovel.put(5, "stick");
+        sShovel.put(8, "stick");
+        RECIPES.put("stone_shovel", new RecipeDef(sShovel, Map.of("cobble", 1, "stick", 2)));
+
+        // Stone Hoe: 2 cobble (1,2), 2 sticks (5,8)
+        Map<Integer, String> sHoe = new LinkedHashMap<>();
+        sHoe.put(1, "cobble");
+        sHoe.put(2, "cobble");
+        sHoe.put(5, "stick");
+        sHoe.put(8, "stick");
+        RECIPES.put("stone_hoe", new RecipeDef(sHoe, Map.of("cobble", 2, "stick", 2)));
 
         // Furnace: 8 cobble (1,2,3,4,6,7,8,9)
         Map<Integer, String> furnace = new LinkedHashMap<>();
@@ -119,6 +175,30 @@ public class CraftInTableTask extends Task {
         iSword.put(8, "stick");
         RECIPES.put("iron_sword", new RecipeDef(iSword, Map.of("iron_ingot", 2, "stick", 1)));
 
+        // Iron Axe: 3 iron ingots (1,2,4), 2 sticks (5,8)
+        Map<Integer, String> iAxe = new LinkedHashMap<>();
+        iAxe.put(1, "iron_ingot");
+        iAxe.put(2, "iron_ingot");
+        iAxe.put(4, "iron_ingot");
+        iAxe.put(5, "stick");
+        iAxe.put(8, "stick");
+        RECIPES.put("iron_axe", new RecipeDef(iAxe, Map.of("iron_ingot", 3, "stick", 2)));
+
+        // Iron Shovel: 1 iron ingot (2), 2 sticks (5,8)
+        Map<Integer, String> iShovel = new LinkedHashMap<>();
+        iShovel.put(2, "iron_ingot");
+        iShovel.put(5, "stick");
+        iShovel.put(8, "stick");
+        RECIPES.put("iron_shovel", new RecipeDef(iShovel, Map.of("iron_ingot", 1, "stick", 2)));
+
+        // Iron Hoe: 2 iron ingots (1,2), 2 sticks (5,8)
+        Map<Integer, String> iHoe = new LinkedHashMap<>();
+        iHoe.put(1, "iron_ingot");
+        iHoe.put(2, "iron_ingot");
+        iHoe.put(5, "stick");
+        iHoe.put(8, "stick");
+        RECIPES.put("iron_hoe", new RecipeDef(iHoe, Map.of("iron_ingot", 2, "stick", 2)));
+
         // Shield: 6 planks (1,3,4,5,6,8), 1 iron ingot (2)
         Map<Integer, String> shield = new LinkedHashMap<>();
         shield.put(1, "plank");
@@ -137,6 +217,21 @@ public class CraftInTableTask extends Task {
         bucket.put(8, "iron_ingot");
         RECIPES.put("bucket", new RecipeDef(bucket, Map.of("iron_ingot", 3)));
 
+        // Flint and Steel: 1 iron ingot (1), 1 flint (2)
+        Map<Integer, String> flintSteel = new LinkedHashMap<>();
+        flintSteel.put(1, "iron_ingot");
+        flintSteel.put(2, "flint");
+        RECIPES.put("flint_and_steel", new RecipeDef(flintSteel, Map.of("iron_ingot", 1, "flint", 1)));
+
+        // Iron Helmet: 5 iron ingots (1,2,3,4,6)
+        Map<Integer, String> iHelm = new LinkedHashMap<>();
+        iHelm.put(1, "iron_ingot");
+        iHelm.put(2, "iron_ingot");
+        iHelm.put(3, "iron_ingot");
+        iHelm.put(4, "iron_ingot");
+        iHelm.put(6, "iron_ingot");
+        RECIPES.put("iron_helmet", new RecipeDef(iHelm, Map.of("iron_ingot", 5)));
+
         // Iron Chestplate: 8 iron ingots (1,3,4,5,6,7,8,9)
         Map<Integer, String> iChest = new LinkedHashMap<>();
         iChest.put(1, "iron_ingot");
@@ -148,6 +243,25 @@ public class CraftInTableTask extends Task {
         iChest.put(8, "iron_ingot");
         iChest.put(9, "iron_ingot");
         RECIPES.put("iron_chestplate", new RecipeDef(iChest, Map.of("iron_ingot", 8)));
+
+        // Iron Leggings: 7 iron ingots (1,2,3,4,6,7,9)
+        Map<Integer, String> iLegs = new LinkedHashMap<>();
+        iLegs.put(1, "iron_ingot");
+        iLegs.put(2, "iron_ingot");
+        iLegs.put(3, "iron_ingot");
+        iLegs.put(4, "iron_ingot");
+        iLegs.put(6, "iron_ingot");
+        iLegs.put(7, "iron_ingot");
+        iLegs.put(9, "iron_ingot");
+        RECIPES.put("iron_leggings", new RecipeDef(iLegs, Map.of("iron_ingot", 7)));
+
+        // Iron Boots: 4 iron ingots (4,6,7,9)
+        Map<Integer, String> iBoots = new LinkedHashMap<>();
+        iBoots.put(4, "iron_ingot");
+        iBoots.put(6, "iron_ingot");
+        iBoots.put(7, "iron_ingot");
+        iBoots.put(9, "iron_ingot");
+        RECIPES.put("iron_boots", new RecipeDef(iBoots, Map.of("iron_ingot", 4)));
 
         // Diamond Pickaxe: 3 diamonds (1,2,3) FIRST, then 2 sticks (5,8)
         Map<Integer, String> dPick = new LinkedHashMap<>();
@@ -165,6 +279,70 @@ public class CraftInTableTask extends Task {
         dSword.put(8, "stick");
         RECIPES.put("diamond_sword", new RecipeDef(dSword, Map.of("diamond", 2, "stick", 1)));
 
+        // Diamond Axe: 3 diamonds (1,2,4), 2 sticks (5,8)
+        Map<Integer, String> dAxe = new LinkedHashMap<>();
+        dAxe.put(1, "diamond");
+        dAxe.put(2, "diamond");
+        dAxe.put(4, "diamond");
+        dAxe.put(5, "stick");
+        dAxe.put(8, "stick");
+        RECIPES.put("diamond_axe", new RecipeDef(dAxe, Map.of("diamond", 3, "stick", 2)));
+
+        // Diamond Shovel: 1 diamond (2), 2 sticks (5,8)
+        Map<Integer, String> dShovel = new LinkedHashMap<>();
+        dShovel.put(2, "diamond");
+        dShovel.put(5, "stick");
+        dShovel.put(8, "stick");
+        RECIPES.put("diamond_shovel", new RecipeDef(dShovel, Map.of("diamond", 1, "stick", 2)));
+
+        // Diamond Hoe: 2 diamonds (1,2), 2 sticks (5,8)
+        Map<Integer, String> dHoe = new LinkedHashMap<>();
+        dHoe.put(1, "diamond");
+        dHoe.put(2, "diamond");
+        dHoe.put(5, "stick");
+        dHoe.put(8, "stick");
+        RECIPES.put("diamond_hoe", new RecipeDef(dHoe, Map.of("diamond", 2, "stick", 2)));
+
+        // Diamond Helmet: 5 diamonds (1,2,3,4,6)
+        Map<Integer, String> dHelm = new LinkedHashMap<>();
+        dHelm.put(1, "diamond");
+        dHelm.put(2, "diamond");
+        dHelm.put(3, "diamond");
+        dHelm.put(4, "diamond");
+        dHelm.put(6, "diamond");
+        RECIPES.put("diamond_helmet", new RecipeDef(dHelm, Map.of("diamond", 5)));
+
+        // Diamond Chestplate: 8 diamonds (1,3,4,5,6,7,8,9)
+        Map<Integer, String> dChest = new LinkedHashMap<>();
+        dChest.put(1, "diamond");
+        dChest.put(3, "diamond");
+        dChest.put(4, "diamond");
+        dChest.put(5, "diamond");
+        dChest.put(6, "diamond");
+        dChest.put(7, "diamond");
+        dChest.put(8, "diamond");
+        dChest.put(9, "diamond");
+        RECIPES.put("diamond_chestplate", new RecipeDef(dChest, Map.of("diamond", 8)));
+
+        // Diamond Leggings: 7 diamonds (1,2,3,4,6,7,9)
+        Map<Integer, String> dLegs = new LinkedHashMap<>();
+        dLegs.put(1, "diamond");
+        dLegs.put(2, "diamond");
+        dLegs.put(3, "diamond");
+        dLegs.put(4, "diamond");
+        dLegs.put(6, "diamond");
+        dLegs.put(7, "diamond");
+        dLegs.put(9, "diamond");
+        RECIPES.put("diamond_leggings", new RecipeDef(dLegs, Map.of("diamond", 7)));
+
+        // Diamond Boots: 4 diamonds (4,6,7,9)
+        Map<Integer, String> dBoots = new LinkedHashMap<>();
+        dBoots.put(4, "diamond");
+        dBoots.put(6, "diamond");
+        dBoots.put(7, "diamond");
+        dBoots.put(9, "diamond");
+        RECIPES.put("diamond_boots", new RecipeDef(dBoots, Map.of("diamond", 4)));
+
         // Golden Helmet: 5 gold ingots (1,2,3,4,6)
         Map<Integer, String> gHelm = new LinkedHashMap<>();
         gHelm.put(1, "gold_ingot");
@@ -173,6 +351,25 @@ public class CraftInTableTask extends Task {
         gHelm.put(4, "gold_ingot");
         gHelm.put(6, "gold_ingot");
         RECIPES.put("golden_helmet", new RecipeDef(gHelm, Map.of("gold_ingot", 5)));
+
+        // Crafting Table: 4 planks (1,2,4,5)
+        Map<Integer, String> table = new LinkedHashMap<>();
+        table.put(1, "plank");
+        table.put(2, "plank");
+        table.put(4, "plank");
+        table.put(5, "plank");
+        RECIPES.put("crafting_table", new RecipeDef(table, Map.of("plank", 4)));
+
+        // Sticks: 2 planks (1,4)
+        Map<Integer, String> stick = new LinkedHashMap<>();
+        stick.put(1, "plank");
+        stick.put(4, "plank");
+        RECIPES.put("stick", new RecipeDef(stick, Map.of("plank", 2)));
+
+        // Planks: 1 log (1)
+        Map<Integer, String> planks = new LinkedHashMap<>();
+        planks.put(1, "log");
+        RECIPES.put("planks", new RecipeDef(planks, Map.of("log", 1)));
 
         // Bed: 3 wool (4,5,6), 3 planks (7,8,9)
         Map<Integer, String> bed = new LinkedHashMap<>();
@@ -210,6 +407,7 @@ public class CraftInTableTask extends Task {
         craftingMenuOpenCloseLoops = 0;
         wasMenuOpen = false;
         missingIngredientTicks = 0;
+        lastTargetCount = -1;
         setDebugState("Crafting " + itemTarget + " in Crafting Table...");
     }
 
@@ -305,6 +503,8 @@ public class CraftInTableTask extends Task {
                 }
                 setDebugState("Need 8 of same stone type for furnace (have " + Math.max(normalCobble, Math.max(deepslateCobble, blackstone)) + "/8)");
                 return null;
+            } else {
+                missingIngredientTicks = 0;
             }
         }
 
@@ -573,31 +773,32 @@ public class CraftInTableTask extends Task {
         craftingGuiTicks++;
         ticksSinceLastCraftAction++;
 
-        // 1. Success check: Does player inventory already have targetCount items?
-        // First, if cursor is holding the target item, deposit it into an inventory slot!
-        ItemStack carried = menu.getCarried();
-        if (!carried.isEmpty() && getItemName(carried).contains(itemTarget)) {
-            int targetSlot = findSlotToDepositTarget(menu, itemTarget);
-            if (targetSlot != -1) {
-                setDebugState("Depositing crafted " + itemTarget + " into inventory...");
-                mc.gameMode.handleContainerInput(containerId, targetSlot, 0, ContainerInput.PICKUP, player);
-                ticksSinceLastCraftAction = 0;
-                stepTimer = 2;
-                return;
-            }
+        // Track changes to player target count
+        int currentCount = InventoryManager.countItems(player, itemTarget);
+        if (currentCount > lastTargetCount) {
+            lastTargetCount = currentCount;
+            recipeBookAttempts = 0;
+            extractAttempts = 0;
         }
 
-        // Count how many of target item we have in player inventory
-        int currentCount = InventoryManager.countItems(player, itemTarget);
+        // 1. If cursor is holding the target item, deposit it into an inventory slot!
+        ItemStack carried = menu.getCarried();
+        if (!carried.isEmpty() && isCraftTarget(carried, itemTarget)) {
+            int targetSlot = findSlotToDepositTarget(menu, itemTarget);
+            setDebugState("Depositing crafted " + itemTarget + " into inventory (slot " + targetSlot + ")...");
+            mc.gameMode.handleContainerInput(containerId, targetSlot, 0, ContainerInput.PICKUP, player);
+            ticksSinceLastCraftAction = 0;
+            stepTimer = 2;
+            return;
+        }
+
+        // 2. Success check: Does player inventory already have targetCount items?
         if (currentCount >= targetCount) {
             // Deposit carried item if still holding anything
             if (!menu.getCarried().isEmpty()) {
-                int targetSlot = findDisposableSlotInContainer(menu);
-                if (targetSlot != -1) {
-                    mc.gameMode.handleContainerInput(containerId, targetSlot, 0, ContainerInput.PICKUP, player);
-                    stepTimer = 2;
-                    return;
-                }
+                clearCursor(mc, player, menu, containerId);
+                stepTimer = 2;
+                return;
             }
             player.closeContainer();
             setDebugState("Successfully crafted " + itemTarget + "! Closed Crafting Table.");
@@ -608,30 +809,37 @@ public class CraftInTableTask extends Task {
             return;
         }
 
-        // 2. Result Slot (Slot 0) Extraction:
-        // STRICT TARGET MATCH: Only extract if slot 0 matches the intended recipe target!
-        // This prevents extracting accidental intermediate items like a wooden hoe while placing planks for a pickaxe!
+        // Check if all recipe grid slots are satisfied
+        String dominantStone = itemTarget.equals("furnace") ? getDominantStoneType(menu) : null;
+        boolean allSlotsSatisfied = true;
+        for (Map.Entry<Integer, String> entry : recipe.gridSlots.entrySet()) {
+            ItemStack inSlot = menu.getSlot(entry.getKey()).getItem();
+            if (inSlot.isEmpty() || !matchesKeyword(getItemName(inSlot), entry.getValue())) {
+                allSlotsSatisfied = false;
+                break;
+            }
+            if (dominantStone != null && entry.getValue().equals("cobble") && !getItemName(inSlot).contains(dominantStone)) {
+                allSlotsSatisfied = false;
+                break;
+            }
+        }
+
+        // 3. Result Slot (Slot 0) Extraction:
+        // Extract if slot 0 is populated and matches target, or if all recipe grid slots are satisfied
         ItemStack resultStack = menu.getSlot(0).getItem();
-        if (!resultStack.isEmpty() && matchesRecipeTarget(getItemName(resultStack), itemTarget)) {
-            // Before extracting, ensure cursor is empty
+        if (!resultStack.isEmpty() && (isCraftTarget(resultStack, itemTarget) || allSlotsSatisfied)) {
+            // Before extracting, ensure cursor is empty of leftovers
             if (!menu.getCarried().isEmpty()) {
-                int targetSlot = (lastIngredientSourceSlot >= 10 && lastIngredientSourceSlot < menu.slots.size())
-                        ? lastIngredientSourceSlot 
-                        : findDisposableSlotInContainer(menu);
-                if (targetSlot != -1) {
-                    mc.gameMode.handleContainerInput(containerId, targetSlot, 0, ContainerInput.PICKUP, player);
-                    lastIngredientSourceSlot = -1;
-                    currentIngredientKeyword = null;
-                    ticksSinceLastCraftAction = 0;
-                    stepTimer = 2;
-                    return;
-                }
+                clearCursor(mc, player, menu, containerId);
+                ticksSinceLastCraftAction = 0;
+                stepTimer = 2;
+                return;
             }
 
             extractAttempts++;
             ticksSinceLastCraftAction = 0;
-            recipeBookAttempts = 0; // Successfully extracted craft result, reset for next craft
-            if (extractAttempts <= 3) {
+            recipeBookAttempts = 0;
+            if (extractAttempts <= 2) {
                 setDebugState("Extracting " + getItemName(resultStack) + " from craft result slot 0 (Shift-Click)...");
                 mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
             } else {
@@ -642,11 +850,27 @@ public class CraftInTableTask extends Task {
             stepTimer = 2;
             return;
         } else {
-            extractAttempts = 0;
+            if (!allSlotsSatisfied) {
+                extractAttempts = 0;
+            }
         }
 
-        // AUTO-CRAFT FAST PATH: Modern Minecraft Native Recipe Book Packet
-        // Instantly places 100% accurate materials into the crafting grid without manual click desync
+        // 4. If all recipe slots are satisfied but slot 0 is still empty, wait / nudge server
+        if (allSlotsSatisfied) {
+            if (!menu.getCarried().isEmpty()) {
+                clearCursor(mc, player, menu, containerId);
+                stepTimer = 2;
+                return;
+            }
+            if (ticksSinceLastCraftAction > 4 && ticksSinceLastCraftAction % 3 == 0) {
+                setDebugState("Nudging server craft evaluation on slot 0...");
+                mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
+            }
+            stepTimer = 2;
+            return;
+        }
+
+        // 5. AUTO-CRAFT FAST PATH: Modern Minecraft Native Recipe Book Packet
         if (menu.getCarried().isEmpty() && recipeBookAttempts < 3) {
             RecipeDisplayId recipeId = findRecipeInBook(player, itemTarget);
             if (recipeId != null) {
@@ -659,8 +883,7 @@ public class CraftInTableTask extends Task {
             }
         }
 
-        // 3. Handle Carried Item in Cursor (Manual Fallback):
-        String dominantStone = itemTarget.equals("furnace") ? getDominantStoneType(menu) : null;
+        // 6. Handle Carried Item in Cursor (Manual Fallback):
         if (!menu.getCarried().isEmpty()) {
             ItemStack carriedStack = menu.getCarried();
             String carriedName = getItemName(carriedStack);
@@ -705,21 +928,13 @@ public class CraftInTableTask extends Task {
             }
 
             // If carried item is no longer needed in the grid, return it to inventory
-            int returnSlot = (lastIngredientSourceSlot >= 10 && lastIngredientSourceSlot < menu.slots.size()) 
-                    ? lastIngredientSourceSlot 
-                    : findDisposableSlotInContainer(menu);
-            if (returnSlot != -1) {
-                setDebugState("Returning leftover ingredient to inventory slot " + returnSlot);
-                mc.gameMode.handleContainerInput(containerId, returnSlot, 0, ContainerInput.PICKUP, player);
-                lastIngredientSourceSlot = -1;
-                currentIngredientKeyword = null;
-                ticksSinceLastCraftAction = 0;
-                stepTimer = 2;
-                return;
-            }
+            clearCursor(mc, player, menu, containerId);
+            ticksSinceLastCraftAction = 0;
+            stepTimer = 2;
+            return;
         }
 
-        // 4. Clear any stray/wrong items in the 3x3 crafting grid (slots 1..9)
+        // 7. Clear any stray/wrong items in the 3x3 crafting grid (slots 1..9)
         for (int s = 1; s <= 9; s++) {
             ItemStack inSlot = menu.getSlot(s).getItem();
             if (!inSlot.isEmpty()) {
@@ -738,32 +953,7 @@ public class CraftInTableTask extends Task {
             }
         }
 
-        // 5. Check if all recipe grid slots are satisfied
-        boolean allSlotsSatisfied = true;
-        for (Map.Entry<Integer, String> entry : recipe.gridSlots.entrySet()) {
-            ItemStack inSlot = menu.getSlot(entry.getKey()).getItem();
-            if (inSlot.isEmpty() || !matchesKeyword(getItemName(inSlot), entry.getValue())) {
-                allSlotsSatisfied = false;
-                break;
-            }
-            if (dominantStone != null && entry.getValue().equals("cobble") && !getItemName(inSlot).contains(dominantStone)) {
-                allSlotsSatisfied = false;
-                break;
-            }
-        }
-
-        if (allSlotsSatisfied) {
-            // Recipe is complete in grid! Wait for server to sync slot 0.
-            // If waited > 8 ticks with all slots populated and slot 0 still empty, click slot 0 to nudge server
-            if (ticksSinceLastCraftAction > 8 && ticksSinceLastCraftAction % 6 == 0) {
-                setDebugState("Nudging server craft evaluation on slot 0...");
-                mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
-            }
-            stepTimer = 2;
-            return;
-        }
-
-        // 6. Grid is not satisfied: pick up the next required ingredient
+        // 8. Grid is not satisfied: pick up the next required ingredient
         for (Map.Entry<Integer, String> entry : recipe.gridSlots.entrySet()) {
             int slot = entry.getKey();
             String keyword = entry.getValue();
@@ -777,6 +967,7 @@ public class CraftInTableTask extends Task {
                 int invSlot = findBestSlotInContainer(menu, searchKeyword);
                 if (invSlot == -1) {
                     setDebugState("Missing ingredient stack for " + searchKeyword + " in inventory!");
+                    clearCursor(mc, player, menu, containerId);
                     player.closeContainer();
                     finished = true;
                     stepTimer = 4;
@@ -793,16 +984,11 @@ public class CraftInTableTask extends Task {
             }
         }
 
-        // 7. Watchdog inside GUI:
+        // 9. Watchdog inside GUI:
         // If inactive for > 70 ticks (~3.5s) or GUI open for > 140 ticks (~7.0s) without completing:
         if (ticksSinceLastCraftAction > 70 || craftingGuiTicks > 140) {
             setDebugState("Watchdog: Crafting GUI unresponsive (" + ticksSinceLastCraftAction + " idle ticks). Resetting...");
-            if (!menu.getCarried().isEmpty()) {
-                int targetSlot = findDisposableSlotInContainer(menu);
-                if (targetSlot != -1) {
-                    mc.gameMode.handleContainerInput(containerId, targetSlot, 0, ContainerInput.PICKUP, player);
-                }
-            }
+            clearCursor(mc, player, menu, containerId);
             player.closeContainer();
             craftingGuiTicks = 0;
             ticksSinceLastCraftAction = 0;
@@ -821,12 +1007,7 @@ public class CraftInTableTask extends Task {
                 mc.gameMode.handleContainerInput(containerId, s, 0, ContainerInput.QUICK_MOVE, player);
             }
         }
-        if (!menu.getCarried().isEmpty()) {
-            int emptySlot = findEmptyPlayerSlotInContainer(menu);
-            if (emptySlot != -1) {
-                mc.gameMode.handleContainerInput(containerId, emptySlot, 0, ContainerInput.PICKUP, player);
-            }
-        }
+        clearCursor(mc, player, menu, containerId);
     }
 
     private BlockPos findNearestOpenGround(Minecraft mc, LocalPlayer player, int radius) {
@@ -1077,13 +1258,40 @@ public class CraftInTableTask extends Task {
         resultName = resultName.toLowerCase().replace("minecraft:", "").trim();
         target = target.toLowerCase().replace("minecraft:", "").trim();
         if (resultName.equals(target)) return true;
-        if (target.equals("plank") || target.equals("planks")) {
-            return resultName.endsWith("_planks") || resultName.equals("planks");
+
+        // Check material compatibility if material is specified in target
+        String[] materials = {"wooden", "wood", "stone", "iron", "golden", "gold", "diamond", "netherite"};
+        for (String mat : materials) {
+            boolean targetHasMat = target.contains(mat);
+            boolean resultHasMat = resultName.contains(mat) || (mat.equals("wood") && resultName.contains("wooden")) || (mat.equals("gold") && resultName.contains("golden"));
+            if (targetHasMat && !resultHasMat) {
+                return false;
+            }
         }
-        if (target.equals("bed")) {
+
+        if (resultName.contains(target) || target.contains(resultName)) return true;
+        if (target.contains("pickaxe") && resultName.contains("pickaxe")) return true;
+        if (target.contains("sword") && resultName.contains("sword")) return true;
+        if (target.contains("axe") && !target.contains("pickaxe") && resultName.contains("axe") && !resultName.contains("pickaxe")) return true;
+        if (target.contains("shovel") && resultName.contains("shovel")) return true;
+        if (target.contains("hoe") && resultName.contains("hoe")) return true;
+        if (target.contains("helmet") && resultName.contains("helmet")) return true;
+        if (target.contains("chestplate") && resultName.contains("chestplate")) return true;
+        if (target.contains("leggings") && resultName.contains("leggings")) return true;
+        if (target.contains("boots") && resultName.contains("boots")) return true;
+        if (target.equals("plank") || target.equals("planks") || target.contains("plank")) {
+            return resultName.endsWith("_planks") || resultName.contains("plank");
+        }
+        if (target.equals("bed") || target.contains("bed")) {
             return resultName.endsWith("_bed");
         }
         return false;
+    }
+
+    public static boolean isCraftTarget(ItemStack stack, String target) {
+        if (stack == null || stack.isEmpty()) return false;
+        String name = getItemName(stack);
+        return matchesRecipeTarget(name, target) || matchesKeyword(name, target);
     }
 
     public static RecipeDisplayId findRecipeInBook(LocalPlayer player, String target) {
@@ -1195,6 +1403,59 @@ public class CraftInTableTask extends Task {
         return -1;
     }
 
+    private int findMergeableSlot(CraftingMenu menu, ItemStack carried) {
+        if (carried == null || carried.isEmpty()) return -1;
+        for (int i = 10; i < menu.slots.size(); i++) {
+            ItemStack stack = menu.getSlot(i).getItem();
+            if (!stack.isEmpty() && stack.is(carried.getItem()) && ItemStack.isSameItemSameComponents(carried, stack)) {
+                if (stack.getCount() < stack.getMaxStackSize()) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private boolean clearCursor(Minecraft mc, LocalPlayer player, CraftingMenu menu, int containerId) {
+        ItemStack carried = menu.getCarried();
+        if (carried.isEmpty()) return true;
+
+        // 1. Try returning to source slot if valid and empty or mergeable
+        if (lastIngredientSourceSlot >= 10 && lastIngredientSourceSlot < menu.slots.size()) {
+            ItemStack srcStack = menu.getSlot(lastIngredientSourceSlot).getItem();
+            if (srcStack.isEmpty() || (srcStack.is(carried.getItem()) && ItemStack.isSameItemSameComponents(carried, srcStack) && srcStack.getCount() + carried.getCount() <= srcStack.getMaxStackSize())) {
+                mc.gameMode.handleContainerInput(containerId, lastIngredientSourceSlot, 0, ContainerInput.PICKUP, player);
+                lastIngredientSourceSlot = -1;
+                currentIngredientKeyword = null;
+                return true;
+            }
+        }
+
+        // 2. Try merging with an existing stack with room
+        int mergeSlot = findMergeableSlot(menu, carried);
+        if (mergeSlot != -1) {
+            mc.gameMode.handleContainerInput(containerId, mergeSlot, 0, ContainerInput.PICKUP, player);
+            lastIngredientSourceSlot = -1;
+            currentIngredientKeyword = null;
+            return true;
+        }
+
+        // 3. Try finding any empty player slot
+        int emptySlot = findEmptyPlayerSlotInContainer(menu);
+        if (emptySlot != -1) {
+            mc.gameMode.handleContainerInput(containerId, emptySlot, 0, ContainerInput.PICKUP, player);
+            lastIngredientSourceSlot = -1;
+            currentIngredientKeyword = null;
+            return true;
+        }
+
+        // 4. Drop outside GUI
+        mc.gameMode.handleContainerInput(containerId, -999, 0, ContainerInput.PICKUP, player);
+        lastIngredientSourceSlot = -1;
+        currentIngredientKeyword = null;
+        return true;
+    }
+
     private int findDisposableSlotInContainer(CraftingMenu menu) {
         int empty = findEmptyPlayerSlotInContainer(menu);
         if (empty != -1) return empty;
@@ -1211,13 +1472,23 @@ public class CraftInTableTask extends Task {
     }
 
     private int findSlotToDepositTarget(CraftingMenu menu, String target) {
+        ItemStack carried = menu.getCarried();
+        if (!carried.isEmpty()) {
+            int merge = findMergeableSlot(menu, carried);
+            if (merge != -1) return merge;
+        }
+        int empty = findEmptyPlayerSlotInContainer(menu);
+        if (empty != -1) return empty;
         for (int i = 10; i < menu.slots.size(); i++) {
             ItemStack stack = menu.getSlot(i).getItem();
-            if (!stack.isEmpty() && getItemName(stack).contains(target) && stack.getCount() < stack.getMaxStackSize()) {
-                return i;
+            if (!stack.isEmpty()) {
+                String name = getItemName(stack);
+                if (name.contains("rotten_flesh") || name.contains("seeds") || name.contains("poisonous_potato")) {
+                    return i;
+                }
             }
         }
-        return findDisposableSlotInContainer(menu);
+        return -999;
     }
 
     private int findPlankSlotInInventory(LocalPlayer player, int minCount) {
@@ -1254,10 +1525,12 @@ public class CraftInTableTask extends Task {
         if (finished) return true;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
-            int count = InventoryManager.countItems(mc.player, itemTarget);
             if (mc.player.containerMenu instanceof CraftingMenu menu) {
-                count = Math.max(count, countTargetInMenuOrInventory(menu, mc.player, itemTarget));
+                if (!menu.getCarried().isEmpty()) {
+                    return false;
+                }
             }
+            int count = InventoryManager.countItems(mc.player, itemTarget);
             if (count >= targetCount) {
                 finished = true;
                 return true;
@@ -1276,9 +1549,14 @@ public class CraftInTableTask extends Task {
 
     public boolean hasRequiredIngredients(LocalPlayer player) {
         if (player == null) return false;
+        if (InventoryManager.countItems(player, itemTarget) >= targetCount) return true;
         RecipeDef recipe = RECIPES.get(itemTarget);
         if (recipe == null) return false;
         CraftingMenu menu = (player.containerMenu instanceof CraftingMenu cm) ? cm : null;
+        if (menu != null) {
+            if (isCraftTarget(menu.getCarried(), itemTarget)) return true;
+            if (isCraftTarget(menu.getSlot(0).getItem(), itemTarget)) return true;
+        }
 
         if (itemTarget.equals("furnace")) {
             int normalCobble = InventoryManager.countItems(player, "cobblestone");

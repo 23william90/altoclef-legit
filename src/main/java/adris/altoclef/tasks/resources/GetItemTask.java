@@ -10,6 +10,8 @@ import adris.altoclef.tasksystem.Task;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.inventory.CraftingMenu;
+import net.minecraft.world.inventory.FurnaceMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Blocks;
 
@@ -50,6 +52,21 @@ public class GetItemTask extends Task {
         if (isItemAcquired(mc, player, item, targetCount)) {
             setDebugState("Acquired " + targetCount + "x " + item + "!");
             return null;
+        }
+
+        // If actively crafting in table or smelting in furnace, let subtask complete!
+        // When items are moved from player inventory into crafting/furnace grids,
+        // player inventory counts temporarily drop. Re-evaluating the tree here would falsely conclude
+        // ingredients are missing, close the container, and abort the craft.
+        if (treeSubTask instanceof CraftInTableTask craftTask && !craftTask.isFinished()) {
+            if (player.containerMenu instanceof CraftingMenu || craftTask.hasRequiredIngredients(player)) {
+                return treeSubTask;
+            }
+        }
+        if (treeSubTask instanceof SmeltInFurnaceTask smeltTask && !smeltTask.isFinished()) {
+            if (player.containerMenu instanceof FurnaceMenu) {
+                return treeSubTask;
+            }
         }
 
         // Dynamically evaluate the full task tree every tick
@@ -489,11 +506,13 @@ public class GetItemTask extends Task {
 
     private boolean ensureCraftingTable(Minecraft mc, LocalPlayer player) {
         if (player == null) return false;
+        if (player.containerMenu instanceof CraftingMenu) return true;
         return InventoryManager.countItems(player, "crafting_table") > 0 || isCraftingTableNearby(mc, player, 16);
     }
 
     private boolean isCraftingTableNearby(Minecraft mc, LocalPlayer player, int radius) {
         if (mc.level == null || player == null) return false;
+        if (player.containerMenu instanceof CraftingMenu) return true;
         BlockPos center = player.blockPosition();
         for (int x = -radius; x <= radius; x++) {
             for (int y = -3; y <= 3; y++) {
@@ -509,6 +528,7 @@ public class GetItemTask extends Task {
 
     private boolean isFurnaceNearby(Minecraft mc, LocalPlayer player, int radius) {
         if (mc.level == null || player == null) return false;
+        if (player.containerMenu instanceof FurnaceMenu) return true;
         BlockPos center = player.blockPosition();
         for (int x = -radius; x <= radius; x++) {
             for (int y = -3; y <= 3; y++) {
