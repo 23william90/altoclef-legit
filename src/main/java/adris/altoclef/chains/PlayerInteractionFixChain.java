@@ -62,18 +62,18 @@ public class PlayerInteractionFixChain extends TaskChain {
         if (mod.getUserTaskChain().isActive() && betterToolTimer.elapsed()) {
             // Equip the right tool for the job if we're not using one.
             betterToolTimer.reset();
-            if (mod.getControllerExtras().isBreakingBlock()) {
+            if (mod.getControllerExtras().isBreakingBlock() && mod.getControllerExtras().getBreakingBlockProgress() == 0) {
                 BlockState state = mod.getWorld().getBlockState(mod.getControllerExtras().getBreakingBlockPos());
                 Optional<Slot> bestToolSlot = StorageHelper.getBestToolSlot(mod, state);
                 Slot currentEquipped = PlayerSlot.getEquipSlot();
 
-                // if baritone is running, only accept tools OUTSIDE OF HOTBAR!
-                // Baritone will take care of tools inside the hotbar.
                 if (bestToolSlot.isPresent() && !bestToolSlot.get().equals(currentEquipped)) {
-                    // ONLY equip if the item class is STRICTLY different (otherwise we swap around a lot)
-                    if (StorageHelper.getItemStackInSlot(currentEquipped).getItem() != StorageHelper.getItemStackInSlot(bestToolSlot.get()).getItem()) {
+                    int bestInvSlot = bestToolSlot.get().getInventorySlot();
+                    if (bestInvSlot >= 0 && bestInvSlot < 9) {
+                        mod.getPlayer().getInventory().selectedSlot = bestInvSlot;
+                    } else if (StorageHelper.getItemStackInSlot(currentEquipped).getItem() != StorageHelper.getItemStackInSlot(bestToolSlot.get()).getItem()) {
                         boolean isAllowedToManage = (!mod.getClientBaritone().getPathingBehavior().isPathing() ||
-                                bestToolSlot.get().getInventorySlot() >= 9) && !mod.getFoodChain().isTryingToEat();
+                                bestInvSlot >= 9) && !mod.getFoodChain().isTryingToEat();
                         if (isAllowedToManage) {
                             Debug.logMessage("Found better tool in inventory, equipping.");
                             ItemStack bestToolItemStack = StorageHelper.getItemStackInSlot(bestToolSlot.get());

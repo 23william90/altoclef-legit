@@ -104,6 +104,16 @@ public class SlotHandler {
         // Already equipped
         if (StorageHelper.getItemStackInSlot(PlayerSlot.getEquipSlot()).getItem() == toEquip) return true;
 
+        // If our item is already present in any hotbar slot, just select that slot without container clicks!
+        if (mod.getPlayer() != null && mod.getPlayer().getInventory() != null) {
+            for (int i = 0; i < 9; i++) {
+                if (mod.getPlayer().getInventory().main.get(i).getItem() == toEquip) {
+                    mod.getPlayer().getInventory().selectedSlot = i;
+                    return true;
+                }
+            }
+        }
+
         // Always equip to the second slot. First + last is occupied by baritone.
         mod.getPlayer().getInventory().selectedSlot = 1;
 
@@ -112,12 +122,9 @@ public class SlotHandler {
 
         List<Slot> itemSlots = mod.getItemStorage().getSlotsWithItemScreen(toEquip);
         if (!itemSlots.isEmpty()) {
-            for (Slot ItemSlots : itemSlots) {
-                int hotbar = 1;
-                //_mod.getPlayer().getInventory().swapSlotWithHotbar();
-                clickSlotForce(Objects.requireNonNull(ItemSlots), inCursor ? 0 : hotbar, inCursor ? SlotActionType.PICKUP : SlotActionType.SWAP);
-                //registerSlotAction();
-            }
+            Slot itemSlot = itemSlots.get(0);
+            int hotbar = 1;
+            clickSlotForce(Objects.requireNonNull(itemSlot), inCursor ? 0 : hotbar, inCursor ? SlotActionType.PICKUP : SlotActionType.SWAP);
             return true;
         }
         return false;

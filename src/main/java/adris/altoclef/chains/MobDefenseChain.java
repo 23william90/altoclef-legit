@@ -47,6 +47,7 @@ public class MobDefenseChain extends SingleTaskChain {
     private boolean isRetreating = false;
     private long lastAttackTime = 0;
     private long creeperBackoffTimer = 0;
+    private long creeperFleeUntil = 0;
     private long dodgeTimer = 0;
     private long lastZigZagTime = 0;
     private boolean zigZagLeft = false;
@@ -63,6 +64,11 @@ public class MobDefenseChain extends SingleTaskChain {
     @Override
     public boolean isActive() {
         return true;
+    }
+
+    public boolean isUnderAttack() {
+        return (currentThreat != null && currentThreat.isAlive() && !currentThreat.isRemoved())
+                || System.currentTimeMillis() < creeperFleeUntil;
     }
 
     @Override
@@ -249,62 +255,42 @@ public class MobDefenseChain extends SingleTaskChain {
         boolean hasShield = hasShield(player);
         IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
 
-        if (isSwelling) {
-            if (hasShield) {
-                // Shield blocks 100% of creeper blast: stand ground and block
-                stopFleeing();
-                stopApproaching();
-                if (baritone != null && baritone.getPathingBehavior().isPathing()) {
-                    baritone.getPathingBehavior().cancelEverything();
-                }
-                ensureShieldEquipped(mc, player);
-                smoothLookAt(player, creeper.getEyePosition(), 50.0f);
-                startShielding();
-                return;
-            } else {
-                // NO SHIELD AND SWELLING: Sprint away immediately from all threats
-                stopShielding();
-                fleeFromAllThreats(mc, player);
-                return;
-            }
+        // 1. Safe Distance Check: >= 16 blocks away (256 distSq) and not swelling
+        if (distSq >= 256.0 && !isSwelling) {
+            stopShielding();
+            stopFleeing();
+            creeperFleeUntil = 0;
+            return;
         }
 
-        // Creeper not swelling yet
-        stopShielding();
-
-        if (distSq <= 16.0) { // Within 4 blocks of creeper
+        // 2. Point-Blank Emergency Shielding:
+        // ONLY if player has a shield, creeper is <= 3.5 blocks away, and is actively swelling
+        if (hasShield && isSwelling && distSq <= 12.25) {
+            stopFleeing();
+            stopApproaching();
             if (baritone != null && baritone.getPathingBehavior().isPathing()) {
                 baritone.getPathingBehavior().cancelEverything();
             }
-            approaching = false;
-
-            smoothLookAt(player, creeper.getEyePosition(), 45.0f);
-            equipBestWeapon(player);
-
-            tryAttack(mc, player, creeper);
-
-            // Backstep while facing creeper to reset its fuse
-            if (baritone != null) {
-                if (System.currentTimeMillis() < creeperBackoffTimer || distSq < 4.0 || System.currentTimeMillis() < postHitBackoffTimer) {
-                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
-                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, true);
-                    baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, false);
-                } else if (distSq > 9.0) {
-                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
-                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, true);
-                } else {
-                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
-                    baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
-                }
-            }
-        } else {
-            // Farther than 4 blocks: approach with Baritone without fighting camera
-            if (baritone != null) {
-                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
-                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
-            }
-            approachTarget(creeper);
+            ensureShieldEquipped(mc, player);
+            smoothLookAt(player, creeper.getEyePosition(), 50.0f);
+            startShielding();
+            return;
         }
+
+        // 3. Creeper Threat (within 12 blocks, swelling, or during active creeper retreat): SPRINT AWAY!
+        if (isSwelling || distSq < 144.0 || System.currentTimeMillis() < creeperFleeUntil) {
+            stopShielding();
+            stopApproaching();
+
+            // Maintain fleeing persistence for at least 3.5 seconds so bot does NOT turn back prematurely!
+            creeperFleeUntil = System.currentTimeMillis() + 3500;
+
+            fleeFromAllThreats(mc, player);
+            return;
+        }
+
+        stopShielding();
+        stopFleeing();
     }
 
     private void handleProjectileDefense(Minecraft mc, LocalPlayer player, Projectile projectile) {
@@ -546,6 +532,9 @@ public class MobDefenseChain extends SingleTaskChain {
                 if (dSq < 1024.0) { // within 32 blocks
                     double dist = Math.sqrt(dSq);
                     double weight = 1.0 / Math.max(1.0, dist);
+                    if (e instanceof Creeper) {
+                        weight *= 3.5; // Strong repulsion away from creepers
+                    }
                     double dx = pPos.x - e.getX();
                     double dz = pPos.z - e.getZ();
                     double len = Math.sqrt(dx * dx + dz * dz);

@@ -17,7 +17,9 @@ import adris.altoclef.util.progresscheck.MovementProgressChecker;
 import adris.altoclef.util.slots.CursorSlot;
 import adris.altoclef.util.slots.PlayerSlot;
 import adris.altoclef.util.time.TimerGame;
+import adris.altoclef.control.RenderDistanceManager;
 import net.minecraft.block.Block;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.ItemEntity;
 import net.minecraft.item.Item;
@@ -109,6 +111,7 @@ public class MineAndCollectTask extends ResourceTask {
     @Override
     protected void onResourceStop(AltoClef mod, Task interruptTask) {
         mod.getBehaviour().pop();
+        RenderDistanceManager.forceRevert(Minecraft.getInstance());
     }
 
     @Override
@@ -189,6 +192,14 @@ public class MineAndCollectTask extends ResourceTask {
             // We can't mine right now.
             if (mod.getExtraBaritoneSettings().isInteractionPaused()) {
                 return closestDrop.getRight().map(Object.class::cast);
+            }
+
+            if (closestBlock.getRight().isEmpty() && closestDrop.getRight().isEmpty()) {
+                // No target blocks or dropped items found in scanned chunks: boost render distance to search further!
+                RenderDistanceManager.requestSearchBoost(Minecraft.getInstance(), 26, 300);
+            } else if (closestBlock.getRight().isPresent()) {
+                // Target block found: revert to base render distance to preserve performance
+                RenderDistanceManager.revert(Minecraft.getInstance());
             }
 
             if (dropSq <= blockSq) {

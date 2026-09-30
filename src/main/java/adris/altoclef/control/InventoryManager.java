@@ -1,6 +1,9 @@
 package adris.altoclef.control;
 
 import adris.altoclef.AltoClef;
+import baritone.api.BaritoneAPI;
+import baritone.api.IBaritone;
+import baritone.api.utils.input.Input;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.component.DataComponents;
@@ -31,6 +34,21 @@ public class InventoryManager {
         if (mc.gui != null && mc.gui.screen() != null) return;
         if (mc.gameMode == null) return;
 
+        // CRITICAL GUARD: Do NOT touch inventory or hotbar while breaking blocks, eating, or in combat!
+        // Touching inventory while breaking cancels destruction progress and resets block break!
+        if (mc.gameMode.isDestroying()) return;
+        if (mc.options.keyAttack.isDown()) return;
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+                if (baritone.getInputOverrideHandler().isInputForcedDown(Input.CLICK_LEFT)) return;
+                if (baritone.getMineProcess().isActive()) return;
+            }
+        } catch (Throwable ignored) {
+        }
+        if (mod.getFoodChain() != null && mod.getFoodChain().isTryingToEat()) return;
+        if (mod.getMobDefenseChain() != null && mod.getMobDefenseChain().isUnderAttack()) return;
+
         if (tickCooldown-- > 0) return;
         tickCooldown = 8; // Run every 8 ticks (~0.4s)
 
@@ -52,6 +70,7 @@ public class InventoryManager {
     private void autoCraftBasicMaterials(Minecraft mc, LocalPlayer player) {
         InventoryMenu menu = player.inventoryMenu;
         if (menu == null || !menu.getCarried().isEmpty()) return;
+        if (mc.gameMode != null && mc.gameMode.isDestroying()) return;
 
         int planks = countItems(player, "plank");
         int logs = countItems(player, "log");
@@ -355,6 +374,7 @@ public class InventoryManager {
     }
 
     private void swapToHotbar(Minecraft mc, LocalPlayer player, int slotNum, int hotbarSlot) {
+        if (mc.gameMode != null && mc.gameMode.isDestroying()) return;
         mc.gameMode.handleContainerInput(
                 InventoryMenu.CONTAINER_ID,
                 slotNum,

@@ -17,6 +17,7 @@ import baritone.api.pathing.goals.GoalNear;
 import baritone.api.utils.Rotation;
 import baritone.api.utils.input.Input;
 import net.minecraft.block.*;
+import net.minecraft.client.Minecraft;
 import adris.altoclef.multiversion.versionedfields.Blocks;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.mob.PillagerEntity;
@@ -338,7 +339,8 @@ public class DestroyBlockTask extends Task implements ITaskRequiresGrounded {
                     return null;
                 }
             }
-            // Tool equip is handled in `PlayerInteractionFixChain`. Oof.
+            // Select best tool in hotbar (or equip from inventory) BEFORE starting to break!
+            equipBestToolForBlock(mod, pos);
             mod.getClientBaritone().getInputOverrideHandler().setInputForceState(Input.CLICK_LEFT, true);
         } else {
             setDebugState("Getting to block...");
@@ -425,6 +427,40 @@ public class DestroyBlockTask extends Task implements ITaskRequiresGrounded {
      * @param other The other task to compare against.
      * @return True if the tasks are equal, false otherwise.
      */
+    private void equipBestToolForBlock(AltoClef mod, BlockPos pos) {
+        if (mod.getWorld() == null || mod.getPlayer() == null) return;
+        BlockState state = mod.getWorld().getBlockState(pos);
+        if (state.isAir() || state.getBlock().getHardness() == 0) return;
+
+        // CRITICAL: If we are already actively breaking this block, NEVER switch tools mid-break!
+        // In Minecraft, switching held items resets break progress to 0!
+        if (isMining || (Minecraft.getInstance().gameMode != null && Minecraft.getInstance().gameMode.isDestroying())) {
+            return;
+        }
+
+        Optional<Slot> bestToolSlot = StorageHelper.getBestToolSlot(mod, state);
+        if (bestToolSlot.isEmpty()) return;
+
+        Slot slot = bestToolSlot.get();
+        int invSlot = slot.getInventorySlot();
+
+        // 1. If best tool is already on the hotbar (0..8), select that slot before breaking
+        if (invSlot >= 0 && invSlot < 9) {
+            if (mod.getPlayer().getInventory().selectedSlot != invSlot) {
+                mod.getPlayer().getInventory().selectedSlot = invSlot;
+            }
+            return;
+        }
+
+        // 2. If best tool is in main inventory (9..35), equip it into hotbar before breaking
+        if (invSlot >= 9 && !mod.getFoodChain().isTryingToEat()) {
+            ItemStack toolStack = StorageHelper.getItemStackInSlot(slot);
+            if (!toolStack.isEmpty()) {
+                mod.getSlotHandler().forceEquipItem(toolStack.getItem());
+            }
+        }
+    }
+
     @Override
     protected boolean isEqual(Task other) {
         boolean isSame = false;

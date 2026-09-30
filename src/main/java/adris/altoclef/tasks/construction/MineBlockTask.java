@@ -310,8 +310,8 @@ public class MineBlockTask extends Task {
             // Actively mining / traveling to a discovered block -> Keep render distance low to save CPU/memory
             RenderDistanceManager.revert(mc);
         } else {
-            // Baritone is searching for blocks / idle -> Temporarily boost render distance to locate blocks/drops
-            RenderDistanceManager.requestSearchBoost(mc, 16, 40);
+            // Baritone is searching for blocks / idle -> Temporarily boost render distance to locate blocks/drops (wood, ores)
+            RenderDistanceManager.requestSearchBoost(mc, 26, 300);
         }
 
         if (cooldown-- <= 0) {
@@ -330,7 +330,7 @@ public class MineBlockTask extends Task {
     @Override
     protected void onStop(Task interruptTask) {
         Minecraft mc = Minecraft.getInstance();
-        RenderDistanceManager.revert(mc);
+        RenderDistanceManager.forceRevert(mc);
         try {
             IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (primary != null) {
