@@ -44,6 +44,7 @@ public class CraftInTableTask extends Task {
     private String currentIngredientKeyword = null;
     private int craftingMenuOpenCloseLoops = 0;
     private boolean wasMenuOpen = false;
+    private int missingIngredientTicks = 0;
 
     private static final Map<String, RecipeDef> RECIPES = new HashMap<>();
 
@@ -134,6 +135,7 @@ public class CraftInTableTask extends Task {
         currentIngredientKeyword = null;
         craftingMenuOpenCloseLoops = 0;
         wasMenuOpen = false;
+        missingIngredientTicks = 0;
         setDebugState("Crafting " + itemTarget + " in Crafting Table...");
     }
 
@@ -250,10 +252,22 @@ public class CraftInTableTask extends Task {
                         }
                     }
                 }
+
+                missingIngredientTicks++;
+                if (missingIngredientTicks > 12) {
+                    setDebugState("Missing ingredient (" + req.getKey() + "). Aborting craft to re-gather...");
+                    finished = true;
+                    if (player.containerMenu instanceof CraftingMenu) {
+                        player.closeContainer();
+                    }
+                    cancelBaritonePathing();
+                    return null;
+                }
                 setDebugState("Missing ingredient: need " + req.getValue() + "x " + req.getKey());
                 return null;
             }
         }
+        missingIngredientTicks = 0;
 
         // 4. Find nearby reachable Crafting Table in world
         BlockPos existingTable = findNearbyTable(mc, player);
@@ -500,8 +514,10 @@ public class CraftInTableTask extends Task {
         }
 
         // 2. Result Slot (Slot 0) Extraction:
+        // STRICT TARGET MATCH: Only extract if slot 0 matches the intended recipe target!
+        // This prevents extracting accidental intermediate items like a wooden hoe while placing planks for a pickaxe!
         ItemStack resultStack = menu.getSlot(0).getItem();
-        if (!resultStack.isEmpty()) {
+        if (!resultStack.isEmpty() && matchesKeyword(getItemName(resultStack), itemTarget)) {
             // Before extracting, ensure cursor is empty
             if (!menu.getCarried().isEmpty()) {
                 int targetSlot = (lastIngredientSourceSlot >= 10 && lastIngredientSourceSlot < menu.slots.size())
@@ -623,6 +639,7 @@ public class CraftInTableTask extends Task {
                 if (invSlot == -1) {
                     setDebugState("Missing ingredient stack for " + keyword + " in inventory!");
                     player.closeContainer();
+                    finished = true;
                     stepTimer = 4;
                     return;
                 }
@@ -1017,6 +1034,30 @@ public class CraftInTableTask extends Task {
             return t.itemTarget.equals(this.itemTarget) && t.targetCount == this.targetCount;
         }
         return false;
+    }
+
+    public boolean hasRequiredIngredients(LocalPlayer player) {
+        if (player == null) return false;
+        RecipeDef recipe = RECIPES.get(itemTarget);
+        if (recipe == null) return false;
+        for (Map.Entry<String, Integer> req : recipe.requiredCounts.entrySet()) {
+            int count = InventoryManager.countItems(player, req.getKey());
+            if (req.getKey().equals("stick")) {
+                if (count < req.getValue()) {
+                    int planks = InventoryManager.countItems(player, "plank");
+                    int logs = InventoryManager.countItems(player, "log");
+                    if (planks < 2 && logs < 1) return false;
+                }
+            } else if (req.getKey().equals("plank")) {
+                if (count < req.getValue()) {
+                    int logs = InventoryManager.countItems(player, "log");
+                    if (logs < 1) return false;
+                }
+            } else {
+                if (count < req.getValue()) return false;
+            }
+        }
+        return true;
     }
 
     @Override

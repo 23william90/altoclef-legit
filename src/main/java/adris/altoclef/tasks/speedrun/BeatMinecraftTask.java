@@ -72,7 +72,15 @@ public class BeatMinecraftTask extends Task {
         }
 
         SpeedrunPhase oldPhase = currentPhase;
-        boolean isCraftingActive = (currentSubTask instanceof CraftInTableTask craftTask && !craftTask.isFinished());
+        boolean isCraftingActive = false;
+        if (currentSubTask instanceof CraftInTableTask craftTask && !craftTask.isFinished()) {
+            if (craftTask.hasRequiredIngredients(mc.player)) {
+                isCraftingActive = true;
+            } else {
+                craftTask.stop(null);
+                currentSubTask = null;
+            }
+        }
         boolean isSmeltingActive = (currentSubTask instanceof SmeltInFurnaceTask smeltTask && !smeltTask.isFinished());
         if (!isCraftingActive && !isSmeltingActive) {
             determinePhase(mc);

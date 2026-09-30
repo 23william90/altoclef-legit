@@ -90,6 +90,26 @@ public class AltoClef implements ModInitializer {
         deathMenuChain = new DeathMenuChain(taskRunner);
         commandStatusOverlay = new CommandStatusOverlay();
 
+        // Clean shutdown handler to prevent Mojang ClientShutdownWatchdog (-8) on client exit
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                if (baritone != null && baritone.getPathingBehavior().isPathing()) {
+                    baritone.getPathingBehavior().forceCancel();
+                }
+            } catch (Throwable ignored) {
+            }
+            Thread forceExit = new Thread(() -> {
+                try {
+                    Thread.sleep(1200);
+                } catch (InterruptedException ignored) {
+                }
+                Runtime.getRuntime().halt(0);
+            }, "AltoClef-CleanExitTimer");
+            forceExit.setDaemon(true);
+            forceExit.start();
+        }, "AltoClef-ShutdownHook"));
+
         // Configure Baritone rendering, lines, and pillaring/throwaway block settings
         try {
             baritone.api.Settings s = BaritoneAPI.getSettings();
