@@ -1,20 +1,39 @@
 package adris.altoclef.chains;
 
 import adris.altoclef.AltoClef;
+import adris.altoclef.control.InventoryManager;
 import adris.altoclef.tasksystem.TaskRunner;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
+import baritone.api.utils.Rotation;
 import baritone.api.utils.input.Input;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
-import adris.altoclef.control.InventoryManager;
+import net.minecraft.util.Mth;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.decoration.ItemFrame;
+import net.minecraft.world.inventory.AbstractFurnaceMenu;
+import net.minecraft.world.inventory.CraftingMenu;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.*;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
 public class FoodChain extends SingleTaskChain {
 
     private boolean eating = false;
     private long eatStartTime = 0;
+    private boolean hasSavedAim = false;
+    private float savedYaw = 0.0f;
+    private float savedPitch = 0.0f;
 
     public FoodChain(TaskRunner runner) {
         super(runner);
@@ -59,6 +78,14 @@ public class FoodChain extends SingleTaskChain {
             }
         }
 
+        // Don't interrupt active crafting or smelting containers unless critical health or starving!
+        if (player.containerMenu instanceof CraftingMenu || player.containerMenu instanceof AbstractFurnaceMenu) {
+            if (health > 6.0f && foodLevel > 3) {
+                if (eating) stopEating();
+                return Float.NEGATIVE_INFINITY;
+            }
+        }
+
         boolean needsFood = foodLevel <= 15 || (health < 16.0f && foodLevel < 20);
         if (!needsFood && !eating) return Float.NEGATIVE_INFINITY;
 
@@ -86,7 +113,19 @@ public class FoodChain extends SingleTaskChain {
     protected void onTick() {
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer player = mc.player;
-        if (player == null) return;
+        if (player == null || mc.level == null) return;
+
+        // 1. If an unexpected container screen is open, close it immediately and turn away!
+        boolean screenOpen = mc.gui != null && mc.gui.screen() != null;
+        if (player.containerMenu != player.inventoryMenu || screenOpen) {
+            stopEating();
+            player.closeContainer();
+            if (mc.gui != null) {
+                mc.gui.setScreen(null);
+            }
+            ensureSafeEatingAim(mc, player);
+            return;
+        }
 
         int foodLevel = player.getFoodData().getFoodLevel();
         float health = player.getHealth();
@@ -107,21 +146,32 @@ public class FoodChain extends SingleTaskChain {
             player.getInventory().setSelectedSlot(foodSlot);
         }
 
-        startEating();
+        // 2. Ensure crosshair is NOT aiming at an interactable block/entity before right-clicking
+        if (!ensureSafeEatingAim(mc, player)) {
+            // Camera was just rotated to safe angle, wait 1 tick for raycast to register
+            return;
+        }
 
-        // Safety timeout (eating takes ~1.6 seconds, max 4s)
+        // 3. Aim is safe! Start/continue eating
+        startEating(mc, player);
+
+        // 4. Safety timeout (eating takes ~1.6 seconds, max 4s)
         if (eating && System.currentTimeMillis() - eatStartTime > 4000) {
             stopEating();
         }
     }
 
-    private void startEating() {
-        if (eating) return;
+    private void startEating(Minecraft mc, LocalPlayer player) {
         try {
             IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (baritone != null) {
                 baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_LEFT, false);
                 baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, true);
+            }
+            if (mc.gameMode != null && !player.isUsingItem()) {
+                mc.gameMode.useItem(player, InteractionHand.MAIN_HAND);
+            }
+            if (!eating) {
                 eating = true;
                 eatStartTime = System.currentTimeMillis();
             }
@@ -130,14 +180,181 @@ public class FoodChain extends SingleTaskChain {
     }
 
     private void stopEating() {
-        if (!eating) return;
+        if (!eating && !hasSavedAim) return;
         try {
             IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (baritone != null) {
                 baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, false);
-                eating = false;
             }
         } catch (Throwable ignored) {
+        }
+        eating = false;
+        eatStartTime = 0;
+
+        // Restore saved orientation if we looked away to eat
+        Minecraft mc = Minecraft.getInstance();
+        if (hasSavedAim && mc.player != null) {
+            mc.player.setYRot(savedYaw);
+            mc.player.setXRot(savedPitch);
+            try {
+                IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                if (baritone != null) {
+                    baritone.getLookBehavior().updateTarget(new Rotation(savedYaw, savedPitch), false);
+                }
+            } catch (Throwable ignored) {
+            }
+            hasSavedAim = false;
+        }
+    }
+
+    private boolean isCrosshairInteractable(Minecraft mc, LocalPlayer player) {
+        HitResult hit = mc.hitResult;
+        if (hit instanceof BlockHitResult bhr && hit.getType() == HitResult.Type.BLOCK) {
+            if (mc.level != null) {
+                BlockState state = mc.level.getBlockState(bhr.getBlockPos());
+                if (isInteractableBlock(state)) {
+                    return true;
+                }
+            }
+        } else if (hit instanceof EntityHitResult ehr && hit.getType() == HitResult.Type.ENTITY) {
+            if (isInteractableEntity(ehr.getEntity())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean ensureSafeEatingAim(Minecraft mc, LocalPlayer player) {
+        if (!isCrosshairInteractable(mc, player)) {
+            return true;
+        }
+
+        // Release right click immediately while adjusting aim to prevent interacting
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+                baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, false);
+            }
+        } catch (Throwable ignored) {
+        }
+
+        if (!hasSavedAim) {
+            savedYaw = player.getYRot();
+            savedPitch = player.getXRot();
+            hasSavedAim = true;
+        }
+
+        float currentYaw = player.getYRot();
+
+        // 1. Try looking up (-85 degrees towards sky/ceiling)
+        if (isLookSafe(mc, player, currentYaw, -85.0f)) {
+            setLook(player, currentYaw, -85.0f);
+            return false;
+        }
+
+        // 2. Try looking down (85 degrees towards ground)
+        if (isLookSafe(mc, player, currentYaw, 85.0f)) {
+            setLook(player, currentYaw, 85.0f);
+            return false;
+        }
+
+        // 3. Try horizontal offsets at pitch 0
+        for (float offset : new float[]{90.0f, -90.0f, 180.0f}) {
+            if (isLookSafe(mc, player, currentYaw + offset, 0.0f)) {
+                setLook(player, currentYaw + offset, 0.0f);
+                return false;
+            }
+        }
+
+        // Fallback: look straight up
+        setLook(player, currentYaw, -85.0f);
+        return false;
+    }
+
+    private void setLook(LocalPlayer player, float yaw, float pitch) {
+        player.setYRot(yaw);
+        player.setXRot(pitch);
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+                baritone.getLookBehavior().updateTarget(new Rotation(yaw, pitch), true);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private boolean isLookSafe(Minecraft mc, LocalPlayer player, float yaw, float pitch) {
+        if (mc.level == null || player == null) return true;
+        Vec3 eyePos = player.getEyePosition();
+        float f = pitch * ((float)Math.PI / 180F);
+        float f1 = -yaw * ((float)Math.PI / 180F);
+        float f2 = Mth.cos(f1);
+        float f3 = Mth.sin(f1);
+        float f4 = Mth.cos(f);
+        float f5 = Mth.sin(f);
+        Vec3 lookVec = new Vec3(f3 * f4, -f5, f2 * f4);
+        Vec3 reachVec = eyePos.add(lookVec.scale(4.5));
+
+        ClipContext ctx = new ClipContext(eyePos, reachVec, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player);
+        BlockHitResult bhr = mc.level.clip(ctx);
+        if (bhr.getType() == HitResult.Type.BLOCK) {
+            BlockState state = mc.level.getBlockState(bhr.getBlockPos());
+            return !isInteractableBlock(state);
+        }
+        return true; // MISS is completely safe (air)
+    }
+
+    public static boolean isInteractableBlock(BlockState state) {
+        if (state == null || state.isAir()) return false;
+        Block block = state.getBlock();
+        return block instanceof CraftingTableBlock
+                || block instanceof ChestBlock
+                || block instanceof EnderChestBlock
+                || block instanceof BarrelBlock
+                || block instanceof ShulkerBoxBlock
+                || block instanceof AbstractFurnaceBlock
+                || block instanceof HopperBlock
+                || block instanceof DispenserBlock
+                || block instanceof DropperBlock
+                || block instanceof AnvilBlock
+                || block instanceof EnchantingTableBlock
+                || block instanceof BrewingStandBlock
+                || block instanceof BeaconBlock
+                || block instanceof LoomBlock
+                || block instanceof CartographyTableBlock
+                || block instanceof GrindstoneBlock
+                || block instanceof SmithingTableBlock
+                || block instanceof StonecutterBlock
+                || block instanceof BedBlock
+                || block instanceof DoorBlock
+                || block instanceof TrapDoorBlock
+                || block instanceof FenceGateBlock
+                || block instanceof LeverBlock
+                || block instanceof ButtonBlock
+                || block instanceof RepeaterBlock
+                || block instanceof ComparatorBlock
+                || block instanceof BellBlock
+                || block instanceof RespawnAnchorBlock
+                || block instanceof NoteBlock
+                || block instanceof JukeboxBlock
+                || block instanceof LecternBlock;
+    }
+
+    public static boolean isInteractableEntity(Entity entity) {
+        if (entity == null || !entity.isAlive()) return false;
+        if (entity instanceof ArmorStand || entity instanceof ItemFrame) return true;
+        try {
+            String typeName = entity.getType().getDescriptionId().toLowerCase();
+            return typeName.contains("villager")
+                    || typeName.contains("boat")
+                    || typeName.contains("minecart")
+                    || typeName.contains("merchant")
+                    || typeName.contains("horse")
+                    || typeName.contains("donkey")
+                    || typeName.contains("mule")
+                    || typeName.contains("llama");
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 
@@ -164,6 +381,19 @@ public class FoodChain extends SingleTaskChain {
         } catch (Throwable ignored) {
         }
         return false;
+    }
+
+    public boolean isTryingToEat() {
+        return eating;
+    }
+
+    public boolean needsToEat() {
+        if (!AltoClef.inGame()) return false;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return false;
+        int foodLevel = mc.player.getFoodData().getFoodLevel();
+        float health = mc.player.getHealth();
+        return foodLevel <= 15 || (health < 16.0f && foodLevel < 20);
     }
 
     @Override
