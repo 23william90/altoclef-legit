@@ -15,8 +15,7 @@ public class InventoryManager {
 
     private static final Set<String> THROWAWAY_NAMES = Set.of(
             "dirt", "cobblestone", "cobbled_deepslate", "netherrack", "stone", "sandstone",
-            "oak_planks", "birch_planks", "spruce_planks", "jungle_planks", "acacia_planks",
-            "dark_oak_planks", "mangrove_planks", "cherry_planks", "pale_oak_planks"
+            "deepslate", "tuff", "andesite", "diorite", "granite"
     );
 
     private int tickCooldown = 0;
@@ -366,6 +365,7 @@ public class InventoryManager {
 
     private boolean isThrowaway(ItemStack stack) {
         String name = getItemName(stack);
+        if (name.contains("plank") || name.contains("log") || name.contains("wood")) return false;
         for (String target : THROWAWAY_NAMES) {
             if (name.contains(target)) return true;
         }

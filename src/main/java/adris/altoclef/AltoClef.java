@@ -106,7 +106,7 @@ public class AltoClef implements ModInitializer {
             s.allowParkourPlace.value = true;
             s.allowParkourAscend.value = true;
             s.allowInventory.value = true; // Enables moving throwaways from main inventory to hotbar!
-            s.blockPlacementPenalty.value = 1.0; // Low placement cost so Baritone will place dirt to climb!
+            s.blockPlacementPenalty.value = 25.0; // High placement cost so Baritone prefers walking/jumping instead of wasting blocks!
             s.jumpPenalty.value = 1.0;
             s.exploreForBlocks.value = true;
             s.mineScanDroppedItems.value = true;
@@ -117,9 +117,11 @@ public class AltoClef implements ModInitializer {
                     Blocks.NETHERRACK.asItem(),
                     Blocks.STONE.asItem(),
                     Blocks.SANDSTONE.asItem(),
-                    Blocks.OAK_PLANKS.asItem(),
-                    Blocks.BIRCH_PLANKS.asItem(),
-                    Blocks.SPRUCE_PLANKS.asItem()
+                    Blocks.DEEPSLATE.asItem(),
+                    Blocks.TUFF.asItem(),
+                    Blocks.ANDESITE.asItem(),
+                    Blocks.DIORITE.asItem(),
+                    Blocks.GRANITE.asItem()
             ));
 
             // Prevent Baritone from ever breaking harmless grass or flowers during pathing

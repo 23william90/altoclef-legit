@@ -72,7 +72,11 @@ public class BeatMinecraftTask extends Task {
         }
 
         SpeedrunPhase oldPhase = currentPhase;
-        determinePhase(mc);
+        boolean isCraftingActive = (currentSubTask instanceof CraftInTableTask craftTask && !craftTask.isFinished());
+        boolean isSmeltingActive = (currentSubTask instanceof SmeltInFurnaceTask smeltTask && !smeltTask.isFinished());
+        if (!isCraftingActive && !isSmeltingActive) {
+            determinePhase(mc);
+        }
         setDebugState(currentPhase.getDescription());
 
         // In The End: wait for chunks to fully load before acting
@@ -318,7 +322,32 @@ public class BeatMinecraftTask extends Task {
 
     private int countItemInInventory(Minecraft mc, String... keywords) {
         if (mc.player == null) return 0;
-        return InventoryManager.countItems(mc.player, keywords);
+        int count = InventoryManager.countItems(mc.player, keywords);
+        if (mc.player.containerMenu instanceof net.minecraft.world.inventory.CraftingMenu menu) {
+            ItemStack carried = menu.getCarried();
+            if (!carried.isEmpty()) {
+                String name = InventoryManager.getItemName(carried);
+                for (String kw : keywords) {
+                    if (CraftInTableTask.matchesKeyword(name, kw)) {
+                        count += carried.getCount();
+                        break;
+                    }
+                }
+            }
+            for (int s = 1; s <= 9; s++) {
+                ItemStack stack = menu.getSlot(s).getItem();
+                if (!stack.isEmpty()) {
+                    String name = InventoryManager.getItemName(stack);
+                    for (String kw : keywords) {
+                        if (CraftInTableTask.matchesKeyword(name, kw)) {
+                            count += stack.getCount();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        return count;
     }
 
     private boolean isCraftingTableNearby(Minecraft mc, LocalPlayer player, int radius) {
