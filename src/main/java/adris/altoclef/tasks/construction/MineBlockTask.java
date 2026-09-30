@@ -1,6 +1,7 @@
 package adris.altoclef.tasks.construction;
 
 import adris.altoclef.AltoClef;
+import adris.altoclef.Debug;
 import adris.altoclef.control.InventoryManager;
 import adris.altoclef.control.RenderDistanceManager;
 import adris.altoclef.control.WorldMemoryTracker;
@@ -9,6 +10,7 @@ import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.pathing.goals.GoalNear;
 import baritone.api.utils.BlockOptionalMetaLookup;
+import baritone.api.utils.input.Input;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -20,6 +22,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -55,6 +59,13 @@ public class MineBlockTask extends Task {
     private final BlockOptionalMetaLookup bomLookup;
     private boolean finished = false;
     private int cooldown = 0;
+
+    // Block Blacklist & Timeout Tracking
+    private BlockPos currentBreakingPos = null;
+    private long breakingStartTime = 0;
+    private Vec3 lastPathingPos = null;
+    private int pathingStuckTicks = 0;
+    private boolean wasBaritoneMining = false;
 
     public MineBlockTask(AltoClef mod, String resourceName, String blockTarget, int targetCount) {
         this.mod = mod;
@@ -195,7 +206,17 @@ public class MineBlockTask extends Task {
     protected void onStart() {
         finished = false;
         cooldown = 0;
+        currentBreakingPos = null;
+        breakingStartTime = 0;
+        lastPathingPos = null;
+        pathingStuckTicks = 0;
+        wasBaritoneMining = false;
         setDebugState("Target: " + targetCount + "x " + resourceName);
+
+        try {
+            BaritoneAPI.getSettings().blacklistClosestOnFailure.value = true;
+        } catch (Throwable ignored) {
+        }
 
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
@@ -272,7 +293,92 @@ public class MineBlockTask extends Task {
             return null;
         }
 
-        // Chest memory scanning: record nearby chests
+        IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
+        boolean isBaritoneMining = primary != null && primary.getMineProcess().isActive();
+        boolean isBaritonePathing = primary != null && primary.getPathingBehavior().isPathing();
+
+        // If Baritone finished receiving all requested items:
+        if (wasBaritoneMining && !isBaritoneMining && current >= targetCount) {
+            finished = true;
+            RenderDistanceManager.revert(mc);
+            onStop(null);
+            return null;
+        }
+        wasBaritoneMining = isBaritoneMining;
+
+        // 1. ACTIVE BLOCK BREAKING TIMEOUT & BLACKLIST (Estimated Normal Break Time)
+        boolean isDestroying = (mc.gameMode != null && mc.gameMode.isDestroying()) ||
+                (primary != null && primary.getInputOverrideHandler().isInputForcedDown(Input.CLICK_LEFT));
+        BlockPos targetedBlock = getCurrentlyTargetedBlock(mc);
+
+        if (isDestroying && targetedBlock != null) {
+            if (currentBreakingPos == null || !currentBreakingPos.equals(targetedBlock)) {
+                currentBreakingPos = targetedBlock.immutable();
+                breakingStartTime = System.currentTimeMillis();
+            } else {
+                BlockState state = mc.level != null ? mc.level.getBlockState(currentBreakingPos) : null;
+                if (state != null && !state.isAir()) {
+                    double elapsed = (System.currentTimeMillis() - breakingStartTime) / 1000.0;
+                    double maxAllowed = getMaxAllowedBreakTime(mc.player, state, currentBreakingPos);
+
+                    if (elapsed > maxAllowed) {
+                        Debug.logMessage("Mining TIMEOUT on block at " + currentBreakingPos.toShortString() +
+                                " (" + String.format("%.2f", elapsed) + "s > max " + String.format("%.2f", maxAllowed) + "s). Blacklisting block!");
+                        WorldMemoryTracker.getInstance().blacklistBlock(currentBreakingPos, 120_000L);
+                        if (primary != null) {
+                            primary.getMineProcess().cancel();
+                            primary.getInputOverrideHandler().clearAllKeys();
+                        }
+                        if (mc.gameMode != null) {
+                            mc.gameMode.stopDestroyBlock();
+                        }
+                        currentBreakingPos = null;
+                        breakingStartTime = 0;
+                        setDebugState("Blacklisted slow block (" + String.format("%.1f", elapsed) + "s). Mining another...");
+                        startMining();
+                        return null;
+                    }
+                } else {
+                    currentBreakingPos = null;
+                    breakingStartTime = 0;
+                }
+            }
+        } else {
+            currentBreakingPos = null;
+            breakingStartTime = 0;
+        }
+
+        // 2. UNREACHABLE / PATHING STUCK BLACKLIST
+        if (isBaritonePathing && mc.player != null) {
+            Vec3 currentPos = mc.player.position();
+            if (lastPathingPos == null || currentPos.distanceToSqr(lastPathingPos) > 0.6) {
+                lastPathingPos = currentPos;
+                pathingStuckTicks = 0;
+            } else {
+                pathingStuckTicks++;
+                if (pathingStuckTicks > 120) { // 6 seconds without progress while pathing to a block
+                    pathingStuckTicks = 0;
+                    BlockPos unreachable = findClosestTargetBlock(mc, mc.player, 32);
+                    if (unreachable != null) {
+                        Debug.logMessage("Pathing STUCK near " + unreachable.toShortString() + ". Blacklisting unreachable block!");
+                        WorldMemoryTracker.getInstance().blacklistBlock(unreachable, 120_000L);
+                        if (primary != null) {
+                            primary.getPathingBehavior().forceCancel();
+                            primary.getMineProcess().cancel();
+                            primary.getInputOverrideHandler().clearAllKeys();
+                        }
+                        setDebugState("Blacklisted unreachable block. Re-routing...");
+                        startMining();
+                        return null;
+                    }
+                }
+            }
+        } else {
+            lastPathingPos = null;
+            pathingStuckTicks = 0;
+        }
+
+        // 3. Chest memory scanning: record nearby chests
         if (mc.level != null && mc.player.tickCount % 40 == 0) {
             BlockPos pPos = mc.player.blockPosition();
             for (int x = -5; x <= 5; x++) {
@@ -287,9 +393,7 @@ public class MineBlockTask extends Task {
             }
         }
 
-        IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
-
-        // 1. RECOVER DEATH DROPS: Check if player recently died and has recoverable dropped items
+        // 4. RECOVER DEATH DROPS: Check if player recently died and has recoverable dropped items
         BlockPos deathDrop = WorldMemoryTracker.getInstance().getRecoverableDeathDrop(mc, mc.player, 160.0);
         if (deathDrop != null) {
             if (primary != null) {
@@ -303,16 +407,12 @@ public class MineBlockTask extends Task {
             return null;
         }
 
-        // 2. CONTINUOUS VEIN MINING & GROUND DROPS
-        boolean isDestroying = mc.gameMode != null && mc.gameMode.isDestroying();
+        // 5. CONTINUOUS VEIN MINING & GROUND DROPS
         boolean blocksNearby = isTargetBlockWithinReach(mc, mc.player);
-        boolean isBaritoneMining = primary != null && primary.getMineProcess().isActive();
-        boolean isBaritonePathing = primary != null && primary.getPathingBehavior().isPathing();
 
         if (isDestroying || blocksNearby) {
             // Actively destroying a block, or adjacent vein block within reach:
             // CONTINUOUS MINING: Do NOT interrupt or cancel mining for dropped items!
-            // Baritone breaks reachable blocks in the vein, vacuuming drops as the bot moves/mines.
             if (!isBaritoneMining && !isBaritonePathing) {
                 startMining();
             }
@@ -344,13 +444,11 @@ public class MineBlockTask extends Task {
             }
         }
 
-        // 3. MINING BLOCKS & DYNAMIC RENDER DISTANCE
+        // 6. MINING BLOCKS & DYNAMIC RENDER DISTANCE
         boolean isBusy = primary != null && (primary.getMineProcess().isActive() || primary.getPathingBehavior().isPathing());
         if (isBusy) {
-            // Actively mining / traveling to a discovered block -> Keep render distance low to save CPU/memory
             RenderDistanceManager.revert(mc);
         } else {
-            // Baritone is searching for blocks / idle -> Temporarily boost render distance to locate blocks/drops (wood, ores)
             RenderDistanceManager.requestSearchBoost(mc, 26, 300);
         }
 
@@ -393,6 +491,7 @@ public class MineBlockTask extends Task {
             for (int y = -2; y <= 3; y++) {
                 for (int z = -r; z <= r; z++) {
                     BlockPos p = center.offset(x, y, z);
+                    if (WorldMemoryTracker.getInstance().isBlockBlacklisted(p)) continue;
                     if (p.closerToCenterThan(pos, radius)) {
                         Block block = mc.level.getBlockState(p).getBlock();
                         if (isTargetBlock(block)) {
@@ -403,6 +502,77 @@ public class MineBlockTask extends Task {
             }
         }
         return false;
+    }
+
+    public BlockPos getCurrentlyTargetedBlock(Minecraft mc) {
+        if (mc.hitResult instanceof BlockHitResult bhr) {
+            BlockPos p = bhr.getBlockPos();
+            if (mc.level != null && isTargetBlock(mc.level.getBlockState(p).getBlock())) {
+                return p;
+            }
+        }
+        try {
+            IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (primary != null && primary.getPlayerContext() != null && primary.getPlayerContext().getSelectedBlock().isPresent()) {
+                BlockPos p = primary.getPlayerContext().getSelectedBlock().get();
+                if (mc.level != null && isTargetBlock(mc.level.getBlockState(p).getBlock())) {
+                    return p;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        if (mc.hitResult instanceof BlockHitResult bhr) {
+            return bhr.getBlockPos();
+        }
+        return null;
+    }
+
+    public BlockPos findClosestTargetBlock(Minecraft mc, LocalPlayer player, int radius) {
+        if (mc.level == null || player == null) return null;
+        BlockPos center = player.blockPosition();
+        BlockPos closest = null;
+        double closestDistSq = Double.POSITIVE_INFINITY;
+
+        for (int x = -radius; x <= radius; x++) {
+            for (int y = -8; y <= 8; y++) {
+                for (int z = -radius; z <= radius; z++) {
+                    BlockPos p = center.offset(x, y, z);
+                    if (WorldMemoryTracker.getInstance().isBlockBlacklisted(p)) continue;
+                    Block block = mc.level.getBlockState(p).getBlock();
+                    if (isTargetBlock(block)) {
+                        double dSq = player.distanceToSqr(Vec3.atCenterOf(p));
+                        if (dSq < closestDistSq) {
+                            closestDistSq = dSq;
+                            closest = p;
+                        }
+                    }
+                }
+            }
+        }
+        return closest;
+    }
+
+    public static double calculateNormalBreakTimeSeconds(LocalPlayer player, BlockState state, BlockPos pos) {
+        if (player == null || state == null || state.isAir()) return 0.05;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return 1.0;
+        try {
+            float progress = state.getDestroyProgress(player, mc.level, pos);
+            if (progress <= 0.0f) {
+                return -1.0; // Unbreakable or zero progress
+            }
+            float ticks = (float) Math.ceil(1.0f / progress);
+            return ticks / 20.0;
+        } catch (Throwable t) {
+            return 2.0;
+        }
+    }
+
+    public static double getMaxAllowedBreakTime(LocalPlayer player, BlockState state, BlockPos pos) {
+        double normal = calculateNormalBreakTimeSeconds(player, state, pos);
+        if (normal < 0) return 1.5; // Unbreakable / impossible -> fast blacklist
+        if (normal > 35.0) return 2.0; // Inappropriate tool (would take > 35s) -> fast blacklist
+        return Math.max(3.0, (normal * 2.5) + 1.5);
     }
 
     public boolean isTargetBlock(Block block) {

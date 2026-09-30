@@ -1,6 +1,8 @@
 package adris.altoclef.control;
 
 import adris.altoclef.tasks.construction.MineBlockTask;
+import baritone.api.BaritoneAPI;
+import baritone.api.IBaritone;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -44,6 +46,7 @@ public class WorldMemoryTracker {
 
     private DeathDropMemory lastDeathDrop = null;
     private final Set<BlockPos> knownChests = new HashSet<>();
+    private final Map<BlockPos, Long> blacklistedBlocks = new HashMap<>();
 
     private WorldMemoryTracker() {
     }
@@ -111,6 +114,82 @@ public class WorldMemoryTracker {
 
     public Set<BlockPos> getKnownChests() {
         return Collections.unmodifiableSet(knownChests);
+    }
+
+    /**
+     * Blacklist a block position so the bot will not attempt to mine or path to it.
+     * @param pos the block position
+     * @param durationMs how long to blacklist in milliseconds (default 120,000ms / 2 minutes)
+     */
+    public void blacklistBlock(BlockPos pos, long durationMs) {
+        if (pos == null) return;
+        BlockPos immutable = pos.immutable();
+        blacklistedBlocks.put(immutable, System.currentTimeMillis() + durationMs);
+        syncBaritoneBlacklist(immutable);
+    }
+
+    public void blacklistBlock(BlockPos pos) {
+        blacklistBlock(pos, 120_000L); // 2 minutes default
+    }
+
+    public boolean isBlockBlacklisted(BlockPos pos) {
+        if (pos == null) return false;
+        Long expiry = blacklistedBlocks.get(pos);
+        if (expiry == null) return false;
+        if (System.currentTimeMillis() > expiry) {
+            blacklistedBlocks.remove(pos);
+            return false;
+        }
+        return true;
+    }
+
+    public void clearBlacklist() {
+        blacklistedBlocks.clear();
+    }
+
+    /**
+     * Synchronizes blacklisted block into Baritone's internal MineProcess blacklist
+     * so Baritone immediately avoids this block and recalculates its goal to a different one.
+     */
+    public void syncBaritoneBlacklist(BlockPos pos) {
+        try {
+            IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (primary == null || primary.getMineProcess() == null) return;
+
+            Object mineProc = primary.getMineProcess();
+            java.lang.reflect.Field blacklistField = findField(mineProc.getClass(), "blacklist");
+            if (blacklistField != null) {
+                blacklistField.setAccessible(true);
+                @SuppressWarnings("unchecked")
+                List<BlockPos> bl = (List<BlockPos>) blacklistField.get(mineProc);
+                if (bl != null && !bl.contains(pos)) {
+                    bl.add(pos);
+                }
+            }
+
+            java.lang.reflect.Field locsField = findField(mineProc.getClass(), "knownOreLocations");
+            if (locsField != null) {
+                locsField.setAccessible(true);
+                @SuppressWarnings("unchecked")
+                List<BlockPos> locs = (List<BlockPos>) locsField.get(mineProc);
+                if (locs != null) {
+                    locs.remove(pos);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private java.lang.reflect.Field findField(Class<?> clazz, String fieldName) {
+        Class<?> current = clazz;
+        while (current != null && current != Object.class) {
+            try {
+                return current.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                current = current.getSuperclass();
+            }
+        }
+        return null;
     }
 
     /**
