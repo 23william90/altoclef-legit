@@ -213,8 +213,16 @@ public class GetItemTask extends Task {
 
         if (clean.equals("furnace")) {
             if (InventoryManager.countItems(player, "furnace") > 0 || isFurnaceNearby(mc, player, 16)) return null;
-            int cobble = InventoryManager.countItems(player, "cobble", "cobblestone", "cobbled_deepslate");
-            if (cobble < 8) return evaluateTree(mc, player, "cobblestone", 8);
+            int normalCobble = InventoryManager.countItems(player, "cobblestone");
+            int deepslateCobble = InventoryManager.countItems(player, "cobbled_deepslate");
+            int blackstone = InventoryManager.countItems(player, "blackstone");
+            if (normalCobble < 8 && deepslateCobble < 8 && blackstone < 8) {
+                if (deepslateCobble > normalCobble) {
+                    return evaluateTree(mc, player, "cobbled_deepslate", 8);
+                } else {
+                    return evaluateTree(mc, player, "cobblestone", 8);
+                }
+            }
             if (!ensureCraftingTable(mc, player)) return evaluateTree(mc, player, "crafting_table", 1);
             return new CraftInTableTask("furnace");
         }
@@ -354,12 +362,34 @@ public class GetItemTask extends Task {
             return new MineBlockTask(mod, "obsidian", "obsidian", count);
         }
 
-        if (clean.equals("cobblestone") || clean.equals("cobble") || clean.equals("stone") || clean.equals("deepslate")) {
-            int current = InventoryManager.countItems(player, "cobble", "cobblestone", "stone", "deepslate", "cobbled_deepslate");
+        if (clean.equals("cobbled_deepslate")) {
+            int current = InventoryManager.countItems(player, "cobbled_deepslate");
+            if (current >= count) return null;
+            ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
+            if (tier.getLevel() < ToolTier.WOOD.getLevel()) {
+                setDebugState("Tree: Requires Wooden Pickaxe to mine Cobbled Deepslate");
+                return evaluateTree(mc, player, "wooden_pickaxe", 1);
+            }
+            return new MineBlockTask(mod, "cobbled deepslate", "deepslate cobbled_deepslate", count);
+        }
+
+        if (clean.equals("cobblestone")) {
+            int current = InventoryManager.countItems(player, "cobblestone");
             if (current >= count) return null;
             ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
             if (tier.getLevel() < ToolTier.WOOD.getLevel()) {
                 setDebugState("Tree: Requires Wooden Pickaxe to mine Cobblestone");
+                return evaluateTree(mc, player, "wooden_pickaxe", 1);
+            }
+            return new MineBlockTask(mod, "cobblestone", "stone cobblestone", count);
+        }
+
+        if (clean.equals("cobble") || clean.equals("stone") || clean.equals("deepslate")) {
+            int current = InventoryManager.countItems(player, "cobble", "cobblestone", "stone", "deepslate", "cobbled_deepslate");
+            if (current >= count) return null;
+            ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
+            if (tier.getLevel() < ToolTier.WOOD.getLevel()) {
+                setDebugState("Tree: Requires Wooden Pickaxe to mine Stone");
                 return evaluateTree(mc, player, "wooden_pickaxe", 1);
             }
             return new MineBlockTask(mod, "cobblestone", "stone cobblestone deepslate cobbled_deepslate", count);

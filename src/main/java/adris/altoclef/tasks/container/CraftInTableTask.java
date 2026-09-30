@@ -1,17 +1,23 @@
 package adris.altoclef.tasks.container;
 
 import adris.altoclef.AltoClef;
+import adris.altoclef.Debug;
 import adris.altoclef.control.InventoryManager;
 import adris.altoclef.tasks.construction.MineBlockTask;
 import adris.altoclef.tasksystem.Task;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.pathing.goals.GoalNear;
+import net.minecraft.client.ClientRecipeBook;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.recipebook.RecipeCollection;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.util.context.ContextMap;
+import net.minecraft.world.item.crafting.display.RecipeDisplayEntry;
+import net.minecraft.world.item.crafting.display.RecipeDisplayId;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.CraftingMenu;
@@ -40,6 +46,7 @@ public class CraftInTableTask extends Task {
     private int craftingGuiTicks = 0;
     private int ticksSinceLastCraftAction = 0;
     private int extractAttempts = 0;
+    private int recipeBookAttempts = 0;
     private int lastIngredientSourceSlot = -1;
     private String currentIngredientKeyword = null;
     private int craftingMenuOpenCloseLoops = 0;
@@ -197,6 +204,7 @@ public class CraftInTableTask extends Task {
         craftingGuiTicks = 0;
         ticksSinceLastCraftAction = 0;
         extractAttempts = 0;
+        recipeBookAttempts = 0;
         lastIngredientSourceSlot = -1;
         currentIngredientKeyword = null;
         craftingMenuOpenCloseLoops = 0;
@@ -241,6 +249,7 @@ public class CraftInTableTask extends Task {
                 craftingGuiTicks = 0;
                 ticksSinceLastCraftAction = 0;
                 extractAttempts = 0;
+                recipeBookAttempts = 0;
                 lastIngredientSourceSlot = -1;
                 currentIngredientKeyword = null;
             }
@@ -279,6 +288,26 @@ public class CraftInTableTask extends Task {
         }
 
         // 4. Verify all ingredients exist in player inventory (when table is NOT open)
+        if (itemTarget.equals("furnace")) {
+            int normalCobble = InventoryManager.countItems(player, "cobblestone");
+            int deepslateCobble = InventoryManager.countItems(player, "cobbled_deepslate");
+            int blackstone = InventoryManager.countItems(player, "blackstone");
+            if (normalCobble < 8 && deepslateCobble < 8 && blackstone < 8) {
+                missingIngredientTicks++;
+                if (missingIngredientTicks > 12) {
+                    setDebugState("Missing 8x homogeneous stone for furnace. Aborting craft to re-gather...");
+                    finished = true;
+                    if (player.containerMenu instanceof CraftingMenu) {
+                        player.closeContainer();
+                    }
+                    cancelBaritonePathing();
+                    return null;
+                }
+                setDebugState("Need 8 of same stone type for furnace (have " + Math.max(normalCobble, Math.max(deepslateCobble, blackstone)) + "/8)");
+                return null;
+            }
+        }
+
         for (Map.Entry<String, Integer> req : recipe.requiredCounts.entrySet()) {
             if (InventoryManager.countItems(player, req.getKey()) < req.getValue()) {
                 // If missing ingredient is sticks, auto-craft them if we have wood/planks
@@ -583,7 +612,7 @@ public class CraftInTableTask extends Task {
         // STRICT TARGET MATCH: Only extract if slot 0 matches the intended recipe target!
         // This prevents extracting accidental intermediate items like a wooden hoe while placing planks for a pickaxe!
         ItemStack resultStack = menu.getSlot(0).getItem();
-        if (!resultStack.isEmpty() && matchesKeyword(getItemName(resultStack), itemTarget)) {
+        if (!resultStack.isEmpty() && matchesRecipeTarget(getItemName(resultStack), itemTarget)) {
             // Before extracting, ensure cursor is empty
             if (!menu.getCarried().isEmpty()) {
                 int targetSlot = (lastIngredientSourceSlot >= 10 && lastIngredientSourceSlot < menu.slots.size())
@@ -601,6 +630,7 @@ public class CraftInTableTask extends Task {
 
             extractAttempts++;
             ticksSinceLastCraftAction = 0;
+            recipeBookAttempts = 0; // Successfully extracted craft result, reset for next craft
             if (extractAttempts <= 3) {
                 setDebugState("Extracting " + getItemName(resultStack) + " from craft result slot 0 (Shift-Click)...");
                 mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
@@ -615,7 +645,22 @@ public class CraftInTableTask extends Task {
             extractAttempts = 0;
         }
 
-        // 3. Handle Carried Item in Cursor:
+        // AUTO-CRAFT FAST PATH: Modern Minecraft Native Recipe Book Packet
+        // Instantly places 100% accurate materials into the crafting grid without manual click desync
+        if (menu.getCarried().isEmpty() && recipeBookAttempts < 3) {
+            RecipeDisplayId recipeId = findRecipeInBook(player, itemTarget);
+            if (recipeId != null) {
+                recipeBookAttempts++;
+                setDebugState("Auto-crafting " + itemTarget + " via Recipe Book...");
+                mc.gameMode.handlePlaceRecipe(containerId, recipeId, false);
+                ticksSinceLastCraftAction = 0;
+                stepTimer = 3;
+                return;
+            }
+        }
+
+        // 3. Handle Carried Item in Cursor (Manual Fallback):
+        String dominantStone = itemTarget.equals("furnace") ? getDominantStoneType(menu) : null;
         if (!menu.getCarried().isEmpty()) {
             ItemStack carriedStack = menu.getCarried();
             String carriedName = getItemName(carriedStack);
@@ -629,14 +674,20 @@ public class CraftInTableTask extends Task {
                 }
             }
 
+            boolean matchesDominant = dominantStone == null || currentIngredientKeyword == null || !currentIngredientKeyword.equals("cobble") || carriedName.contains(dominantStone);
+
             // Is the carried item an ingredient we need to place into an unpopulated grid slot?
-            if (currentIngredientKeyword != null && matchesKeyword(carriedName, currentIngredientKeyword)) {
+            if (currentIngredientKeyword != null && matchesKeyword(carriedName, currentIngredientKeyword) && matchesDominant) {
                 // Find next slot that needs this ingredient
                 int targetGridSlot = -1;
                 for (Map.Entry<Integer, String> entry : recipe.gridSlots.entrySet()) {
                     if (entry.getValue().equals(currentIngredientKeyword)) {
                         ItemStack inSlot = menu.getSlot(entry.getKey()).getItem();
-                        if (inSlot.isEmpty() || !matchesKeyword(getItemName(inSlot), currentIngredientKeyword)) {
+                        boolean needs = inSlot.isEmpty() || !matchesKeyword(getItemName(inSlot), currentIngredientKeyword);
+                        if (!needs && dominantStone != null && entry.getValue().equals("cobble") && !getItemName(inSlot).contains(dominantStone)) {
+                            needs = true;
+                        }
+                        if (needs) {
                             targetGridSlot = entry.getKey();
                             break;
                         }
@@ -673,8 +724,12 @@ public class CraftInTableTask extends Task {
             ItemStack inSlot = menu.getSlot(s).getItem();
             if (!inSlot.isEmpty()) {
                 String expectedKeyword = recipe.gridSlots.get(s);
-                if (expectedKeyword == null || !matchesKeyword(getItemName(inSlot), expectedKeyword)) {
-                    setDebugState("Clearing stray item " + getItemName(inSlot) + " from grid slot " + s);
+                boolean invalid = expectedKeyword == null || !matchesKeyword(getItemName(inSlot), expectedKeyword);
+                if (!invalid && dominantStone != null && expectedKeyword.equals("cobble") && !getItemName(inSlot).contains(dominantStone)) {
+                    invalid = true;
+                }
+                if (invalid) {
+                    setDebugState("Clearing stray/mixed item " + getItemName(inSlot) + " from grid slot " + s);
                     mc.gameMode.handleContainerInput(containerId, s, 0, ContainerInput.QUICK_MOVE, player);
                     ticksSinceLastCraftAction = 0;
                     stepTimer = 2;
@@ -688,6 +743,10 @@ public class CraftInTableTask extends Task {
         for (Map.Entry<Integer, String> entry : recipe.gridSlots.entrySet()) {
             ItemStack inSlot = menu.getSlot(entry.getKey()).getItem();
             if (inSlot.isEmpty() || !matchesKeyword(getItemName(inSlot), entry.getValue())) {
+                allSlotsSatisfied = false;
+                break;
+            }
+            if (dominantStone != null && entry.getValue().equals("cobble") && !getItemName(inSlot).contains(dominantStone)) {
                 allSlotsSatisfied = false;
                 break;
             }
@@ -709,17 +768,22 @@ public class CraftInTableTask extends Task {
             int slot = entry.getKey();
             String keyword = entry.getValue();
             ItemStack inSlot = menu.getSlot(slot).getItem();
-            if (inSlot.isEmpty() || !matchesKeyword(getItemName(inSlot), keyword)) {
-                int invSlot = findBestSlotInContainer(menu, keyword);
+            boolean needs = inSlot.isEmpty() || !matchesKeyword(getItemName(inSlot), keyword);
+            if (!needs && dominantStone != null && keyword.equals("cobble") && !getItemName(inSlot).contains(dominantStone)) {
+                needs = true;
+            }
+            if (needs) {
+                String searchKeyword = (dominantStone != null && keyword.equals("cobble")) ? dominantStone : keyword;
+                int invSlot = findBestSlotInContainer(menu, searchKeyword);
                 if (invSlot == -1) {
-                    setDebugState("Missing ingredient stack for " + keyword + " in inventory!");
+                    setDebugState("Missing ingredient stack for " + searchKeyword + " in inventory!");
                     player.closeContainer();
                     finished = true;
                     stepTimer = 4;
                     return;
                 }
 
-                setDebugState("Picking up " + keyword + " from inventory slot " + invSlot);
+                setDebugState("Picking up " + searchKeyword + " from inventory slot " + invSlot);
                 lastIngredientSourceSlot = invSlot;
                 currentIngredientKeyword = keyword;
                 mc.gameMode.handleContainerInput(containerId, invSlot, 0, ContainerInput.PICKUP, player);
@@ -996,7 +1060,7 @@ public class CraftInTableTask extends Task {
         if (keyword.equals("cobble")) {
             return itemName.contains("cobblestone") || itemName.contains("cobbled_deepslate") || itemName.contains("blackstone");
         }
-        if (keyword.equals("plank")) {
+        if (keyword.equals("plank") || keyword.equals("planks")) {
             return itemName.endsWith("_planks") || itemName.contains("plank");
         }
         if (keyword.equals("log")) {
@@ -1008,12 +1072,111 @@ public class CraftInTableTask extends Task {
         return false;
     }
 
+    public static boolean matchesRecipeTarget(String resultName, String target) {
+        if (resultName == null || target == null) return false;
+        resultName = resultName.toLowerCase().replace("minecraft:", "").trim();
+        target = target.toLowerCase().replace("minecraft:", "").trim();
+        if (resultName.equals(target)) return true;
+        if (target.equals("plank") || target.equals("planks")) {
+            return resultName.endsWith("_planks") || resultName.equals("planks");
+        }
+        if (target.equals("bed")) {
+            return resultName.endsWith("_bed");
+        }
+        return false;
+    }
+
+    public static RecipeDisplayId findRecipeInBook(LocalPlayer player, String target) {
+        if (player == null) return null;
+        try {
+            ClientRecipeBook book = player.getRecipeBook();
+            if (book == null) return null;
+            List<RecipeCollection> collections = book.getCollections();
+            if (collections == null || collections.isEmpty()) return null;
+
+            RecipeDisplayId craftableExact = null;
+            RecipeDisplayId craftableAny = null;
+            RecipeDisplayId fallbackExact = null;
+
+            for (RecipeCollection col : collections) {
+                List<RecipeDisplayEntry> recipes = col.getRecipes();
+                if (recipes == null) continue;
+                for (RecipeDisplayEntry entry : recipes) {
+                    List<ItemStack> results = entry.resultItems(ContextMap.EMPTY);
+                    if (results != null) {
+                        for (ItemStack stack : results) {
+                            if (!stack.isEmpty()) {
+                                String name = getItemName(stack);
+                                boolean isCraftable = col.isCraftable(entry.id());
+                                if (matchesRecipeTarget(name, target)) {
+                                    if (isCraftable) {
+                                        return entry.id(); // Exact target match and craftable now!
+                                    }
+                                    if (fallbackExact == null) {
+                                        fallbackExact = entry.id();
+                                    }
+                                } else if (matchesKeyword(name, target)) {
+                                    if (isCraftable && craftableAny == null) {
+                                        craftableAny = entry.id();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (craftableExact != null) return craftableExact;
+            if (fallbackExact != null) return fallbackExact;
+            return craftableAny;
+        } catch (Throwable t) {
+            Debug.logWarning("Error searching recipe book: " + t.getMessage());
+            return null;
+        }
+    }
+
+    private String getDominantStoneType(CraftingMenu menu) {
+        int normalCobble = 0;
+        int deepslateCobble = 0;
+        int blackstone = 0;
+        for (int i = 0; i < menu.slots.size(); i++) {
+            if (i == 0) continue; // skip result slot
+            ItemStack stack = menu.getSlot(i).getItem();
+            if (!stack.isEmpty()) {
+                String name = getItemName(stack);
+                if (name.contains("cobbled_deepslate")) {
+                    deepslateCobble += stack.getCount();
+                } else if (name.contains("cobblestone")) {
+                    normalCobble += stack.getCount();
+                } else if (name.contains("blackstone")) {
+                    blackstone += stack.getCount();
+                }
+            }
+        }
+        ItemStack carried = menu.getCarried();
+        if (!carried.isEmpty()) {
+            String name = getItemName(carried);
+            if (name.contains("cobbled_deepslate")) deepslateCobble += carried.getCount();
+            else if (name.contains("cobblestone")) normalCobble += carried.getCount();
+            else if (name.contains("blackstone")) blackstone += carried.getCount();
+        }
+
+        if (deepslateCobble >= 8) return "cobbled_deepslate";
+        if (normalCobble >= 8) return "cobblestone";
+        if (blackstone >= 8) return "blackstone";
+        if (deepslateCobble >= normalCobble && deepslateCobble >= blackstone) return "cobbled_deepslate";
+        if (normalCobble >= deepslateCobble && normalCobble >= blackstone) return "cobblestone";
+        return "blackstone";
+    }
+
     private int findBestSlotInContainer(CraftingMenu menu, String keyword) {
         int bestSlot = -1;
         int maxCount = 0;
         for (int i = 10; i < menu.slots.size(); i++) {
             ItemStack stack = menu.getSlot(i).getItem();
             if (!stack.isEmpty() && matchesKeyword(getItemName(stack), keyword)) {
+                if (keyword.equals("cobbled_deepslate") && !getItemName(stack).contains("cobbled_deepslate")) continue;
+                if (keyword.equals("cobblestone") && !getItemName(stack).contains("cobblestone")) continue;
+                if (keyword.equals("blackstone") && !getItemName(stack).contains("blackstone")) continue;
                 if (stack.getCount() > maxCount) {
                     maxCount = stack.getCount();
                     bestSlot = i;
@@ -1116,6 +1279,34 @@ public class CraftInTableTask extends Task {
         RecipeDef recipe = RECIPES.get(itemTarget);
         if (recipe == null) return false;
         CraftingMenu menu = (player.containerMenu instanceof CraftingMenu cm) ? cm : null;
+
+        if (itemTarget.equals("furnace")) {
+            int normalCobble = InventoryManager.countItems(player, "cobblestone");
+            int deepslateCobble = InventoryManager.countItems(player, "cobbled_deepslate");
+            int blackstone = InventoryManager.countItems(player, "blackstone");
+            if (menu != null) {
+                for (int s = 1; s <= 9; s++) {
+                    ItemStack st = menu.getSlot(s).getItem();
+                    if (!st.isEmpty()) {
+                        String n = getItemName(st);
+                        if (n.contains("cobbled_deepslate")) deepslateCobble += st.getCount();
+                        else if (n.contains("cobblestone")) normalCobble += st.getCount();
+                        else if (n.contains("blackstone")) blackstone += st.getCount();
+                    }
+                }
+                ItemStack carried = menu.getCarried();
+                if (!carried.isEmpty()) {
+                    String n = getItemName(carried);
+                    if (n.contains("cobbled_deepslate")) deepslateCobble += carried.getCount();
+                    else if (n.contains("cobblestone")) normalCobble += carried.getCount();
+                    else if (n.contains("blackstone")) blackstone += carried.getCount();
+                }
+            }
+            if (normalCobble < 8 && deepslateCobble < 8 && blackstone < 8) {
+                return false;
+            }
+        }
+
         for (Map.Entry<String, Integer> req : recipe.requiredCounts.entrySet()) {
             int count = InventoryManager.countItems(player, req.getKey());
             if (menu != null) {
