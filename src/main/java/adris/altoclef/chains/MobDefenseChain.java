@@ -194,6 +194,7 @@ public class MobDefenseChain extends SingleTaskChain {
             stopShielding();
             stopApproaching();
             stopFleeing();
+            clearForcedMovementKeys();
             currentThreat = null;
             lockedThreat = null;
             return;
@@ -214,6 +215,7 @@ public class MobDefenseChain extends SingleTaskChain {
             stopShielding();
             stopApproaching();
             stopFleeing();
+            clearForcedMovementKeys();
             currentThreat = null;
             lockedThreat = null;
             return;
@@ -627,18 +629,34 @@ public class MobDefenseChain extends SingleTaskChain {
         return !state.isSolid();
     }
 
-    private void stopFleeing() {
-        if (!fleeing) return;
-        fleeing = false;
+    public void clearForcedMovementKeys() {
+        dodgeTimer = 0;
         try {
             IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (baritone != null) {
                 baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
                 baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
+                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_LEFT, false);
+                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_RIGHT, false);
                 baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, false);
-                baritone.getPathingBehavior().cancelEverything();
+                baritone.getInputOverrideHandler().setInputForceState(Input.SNEAK, false);
             }
         } catch (Throwable ignored) {
+        }
+    }
+
+    private void stopFleeing() {
+        boolean wasFleeing = fleeing;
+        fleeing = false;
+        clearForcedMovementKeys();
+        if (wasFleeing) {
+            try {
+                IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                if (baritone != null) {
+                    baritone.getPathingBehavior().cancelEverything();
+                }
+            } catch (Throwable ignored) {
+            }
         }
     }
 
@@ -655,19 +673,17 @@ public class MobDefenseChain extends SingleTaskChain {
     }
 
     private void stopApproaching() {
-        if (!approaching) return;
+        boolean wasApproaching = approaching;
         approaching = false;
-        try {
-            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
-            if (baritone != null) {
-                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, false);
-                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_BACK, false);
-                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_LEFT, false);
-                baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_RIGHT, false);
-                baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, false);
-                baritone.getPathingBehavior().cancelEverything();
+        clearForcedMovementKeys();
+        if (wasApproaching) {
+            try {
+                IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                if (baritone != null) {
+                    baritone.getPathingBehavior().cancelEverything();
+                }
+            } catch (Throwable ignored) {
             }
-        } catch (Throwable ignored) {
         }
     }
 
@@ -1213,6 +1229,7 @@ public class MobDefenseChain extends SingleTaskChain {
         stopShielding();
         stopApproaching();
         stopFleeing();
+        clearForcedMovementKeys();
         lockedThreat = null;
         isRetreating = false;
         isJumpingForCrit = false;
@@ -1223,6 +1240,7 @@ public class MobDefenseChain extends SingleTaskChain {
         stopShielding();
         stopApproaching();
         stopFleeing();
+        clearForcedMovementKeys();
         lockedThreat = null;
         isRetreating = false;
         isJumpingForCrit = false;
