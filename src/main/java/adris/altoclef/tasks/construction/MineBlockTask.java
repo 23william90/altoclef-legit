@@ -215,6 +215,7 @@ public class MineBlockTask extends Task {
 
         try {
             BaritoneAPI.getSettings().blacklistClosestOnFailure.value = true;
+            BaritoneAPI.getSettings().exploreForBlocks.value = true;
         } catch (Throwable ignored) {
         }
 
@@ -249,6 +250,8 @@ public class MineBlockTask extends Task {
                 } else if (blockNames.length > 0) {
                     primary.getMineProcess().mineByName(targetCount, blockNames);
                 }
+                // CRUCIAL: Immediately re-populate Baritone's blacklist since mine() resets it to a new empty list!
+                WorldMemoryTracker.getInstance().syncAllBlacklistedToBaritone();
             }
         } catch (Throwable t) {
             t.printStackTrace();
@@ -283,12 +286,16 @@ public class MineBlockTask extends Task {
             }
         }
 
+        // Keep Baritone's blacklist synchronized with WorldMemoryTracker
+        WorldMemoryTracker.getInstance().syncAllBlacklistedToBaritone();
+
         int current = getCurrentCount();
         setDebugState(current + " / " + targetCount + " " + resourceName);
 
         if (current >= targetCount) {
             finished = true;
             RenderDistanceManager.revert(mc);
+            WorldMemoryTracker.getInstance().clearBlacklist();
             onStop(null);
             return null;
         }
@@ -301,6 +308,7 @@ public class MineBlockTask extends Task {
         if (wasBaritoneMining && !isBaritoneMining && current >= targetCount) {
             finished = true;
             RenderDistanceManager.revert(mc);
+            WorldMemoryTracker.getInstance().clearBlacklist();
             onStop(null);
             return null;
         }
@@ -310,6 +318,25 @@ public class MineBlockTask extends Task {
         boolean isDestroying = (mc.gameMode != null && mc.gameMode.isDestroying()) ||
                 (primary != null && primary.getInputOverrideHandler().isInputForcedDown(Input.CLICK_LEFT));
         BlockPos targetedBlock = getCurrentlyTargetedBlock(mc);
+
+        // Immediate safeguard: If currently targeted block is blacklisted, abort breaking it immediately!
+        if (targetedBlock != null && WorldMemoryTracker.getInstance().isBlockBlacklisted(targetedBlock)) {
+            if (primary != null) {
+                primary.getPathingBehavior().forceCancel();
+                primary.getInputOverrideHandler().clearAllKeys();
+                primary.getInputOverrideHandler().setInputForceState(Input.CLICK_LEFT, false);
+            }
+            if (mc.gameMode != null) {
+                mc.gameMode.stopDestroyBlock();
+            }
+            if (mc.options != null && mc.options.keyAttack != null) {
+                mc.options.keyAttack.setDown(false);
+            }
+            currentBreakingPos = null;
+            breakingStartTime = 0;
+            WorldMemoryTracker.getInstance().syncBaritoneBlacklist(targetedBlock);
+            return null;
+        }
 
         if (isDestroying && targetedBlock != null) {
             if (currentBreakingPos == null || !currentBreakingPos.equals(targetedBlock)) {
@@ -324,18 +351,29 @@ public class MineBlockTask extends Task {
                     if (elapsed > maxAllowed) {
                         Debug.logMessage("Mining TIMEOUT on block at " + currentBreakingPos.toShortString() +
                                 " (" + String.format("%.2f", elapsed) + "s > max " + String.format("%.2f", maxAllowed) + "s). Blacklisting block!");
-                        WorldMemoryTracker.getInstance().blacklistBlock(currentBreakingPos, 120_000L);
+                        BlockPos slowBlock = currentBreakingPos;
+                        WorldMemoryTracker.getInstance().blacklistBlock(slowBlock, 120_000L);
+                        WorldMemoryTracker.getInstance().syncAllBlacklistedToBaritone();
+
                         if (primary != null) {
-                            primary.getMineProcess().cancel();
+                            primary.getPathingBehavior().forceCancel();
                             primary.getInputOverrideHandler().clearAllKeys();
+                            primary.getInputOverrideHandler().setInputForceState(Input.CLICK_LEFT, false);
                         }
                         if (mc.gameMode != null) {
                             mc.gameMode.stopDestroyBlock();
                         }
+                        if (mc.options != null && mc.options.keyAttack != null) {
+                            mc.options.keyAttack.setDown(false);
+                        }
                         currentBreakingPos = null;
                         breakingStartTime = 0;
                         setDebugState("Blacklisted slow block (" + String.format("%.1f", elapsed) + "s). Mining another...");
-                        startMining();
+
+                        // If Baritone mine process became inactive, restart it; otherwise it prunes and paths to the next block
+                        if (primary == null || !primary.getMineProcess().isActive()) {
+                            startMining();
+                        }
                         return null;
                     }
                 } else {
@@ -362,13 +400,23 @@ public class MineBlockTask extends Task {
                     if (unreachable != null) {
                         Debug.logMessage("Pathing STUCK near " + unreachable.toShortString() + ". Blacklisting unreachable block!");
                         WorldMemoryTracker.getInstance().blacklistBlock(unreachable, 120_000L);
+                        WorldMemoryTracker.getInstance().syncAllBlacklistedToBaritone();
+
                         if (primary != null) {
                             primary.getPathingBehavior().forceCancel();
-                            primary.getMineProcess().cancel();
                             primary.getInputOverrideHandler().clearAllKeys();
+                            primary.getInputOverrideHandler().setInputForceState(Input.CLICK_LEFT, false);
+                        }
+                        if (mc.gameMode != null) {
+                            mc.gameMode.stopDestroyBlock();
+                        }
+                        if (mc.options != null && mc.options.keyAttack != null) {
+                            mc.options.keyAttack.setDown(false);
                         }
                         setDebugState("Blacklisted unreachable block. Re-routing...");
-                        startMining();
+                        if (primary == null || !primary.getMineProcess().isActive()) {
+                            startMining();
+                        }
                         return null;
                     }
                 }
@@ -469,6 +517,9 @@ public class MineBlockTask extends Task {
     protected void onStop(Task interruptTask) {
         Minecraft mc = Minecraft.getInstance();
         RenderDistanceManager.forceRevert(mc);
+        if (finished || isFinished()) {
+            WorldMemoryTracker.getInstance().clearBlacklist();
+        }
         try {
             IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (primary != null) {
@@ -520,9 +571,6 @@ public class MineBlockTask extends Task {
                 }
             }
         } catch (Throwable ignored) {
-        }
-        if (mc.hitResult instanceof BlockHitResult bhr) {
-            return bhr.getBlockPos();
         }
         return null;
     }

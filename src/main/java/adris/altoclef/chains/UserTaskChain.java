@@ -2,6 +2,7 @@ package adris.altoclef.chains;
 
 import adris.altoclef.AltoClef;
 import adris.altoclef.Debug;
+import adris.altoclef.control.WorldMemoryTracker;
 import adris.altoclef.eventbus.EventBus;
 import adris.altoclef.eventbus.events.TaskFinishedEvent;
 import adris.altoclef.tasksystem.Task;
@@ -54,6 +55,7 @@ public class UserTaskChain extends SingleTaskChain {
     }
 
     public void cancel(AltoClef mod) {
+        WorldMemoryTracker.getInstance().clearBlacklist();
         if (mainTask != null && mainTask.isActive()) {
             stop();
             onTaskFinish(mod);
@@ -117,6 +119,7 @@ public class UserTaskChain extends SingleTaskChain {
         // our `onFinish` might have triggered more tasks.
         boolean actuallyDone = mainTask == null;
         if (actuallyDone) {
+            WorldMemoryTracker.getInstance().clearBlacklist();
             if (!runningIdleTask) {
                 Debug.logMessage("User task FINISHED. Took %s seconds.", prettyPrintTimeDuration(seconds));
                 EventBus.publish(new TaskFinishedEvent(seconds, oldTask));

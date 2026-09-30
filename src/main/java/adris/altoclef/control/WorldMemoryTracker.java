@@ -1,8 +1,10 @@
 package adris.altoclef.control;
 
+import adris.altoclef.Debug;
 import adris.altoclef.tasks.construction.MineBlockTask;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
+import baritone.api.utils.BetterBlockPos;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -135,7 +137,19 @@ public class WorldMemoryTracker {
     public boolean isBlockBlacklisted(BlockPos pos) {
         if (pos == null) return false;
         Long expiry = blacklistedBlocks.get(pos);
-        if (expiry == null) return false;
+        if (expiry == null) {
+            for (Map.Entry<BlockPos, Long> entry : blacklistedBlocks.entrySet()) {
+                BlockPos p = entry.getKey();
+                if (p.getX() == pos.getX() && p.getY() == pos.getY() && p.getZ() == pos.getZ()) {
+                    if (System.currentTimeMillis() > entry.getValue()) {
+                        blacklistedBlocks.remove(p);
+                        return false;
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
         if (System.currentTimeMillis() > expiry) {
             blacklistedBlocks.remove(pos);
             return false;
@@ -145,6 +159,22 @@ public class WorldMemoryTracker {
 
     public void clearBlacklist() {
         blacklistedBlocks.clear();
+        try {
+            IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (primary != null && primary.getMineProcess() != null) {
+                Object mineProc = primary.getMineProcess();
+                java.lang.reflect.Field blacklistField = findField(mineProc.getClass(), "blacklist");
+                if (blacklistField != null) {
+                    blacklistField.setAccessible(true);
+                    @SuppressWarnings("unchecked")
+                    List<BlockPos> bl = (List<BlockPos>) blacklistField.get(mineProc);
+                    if (bl != null) {
+                        bl.clear();
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /**
@@ -152,31 +182,98 @@ public class WorldMemoryTracker {
      * so Baritone immediately avoids this block and recalculates its goal to a different one.
      */
     public void syncBaritoneBlacklist(BlockPos pos) {
+        if (pos == null) return;
         try {
             IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (primary == null || primary.getMineProcess() == null) return;
 
             Object mineProc = primary.getMineProcess();
             java.lang.reflect.Field blacklistField = findField(mineProc.getClass(), "blacklist");
+            java.lang.reflect.Field locsField = findField(mineProc.getClass(), "knownOreLocations");
+
             if (blacklistField != null) {
                 blacklistField.setAccessible(true);
                 @SuppressWarnings("unchecked")
                 List<BlockPos> bl = (List<BlockPos>) blacklistField.get(mineProc);
-                if (bl != null && !bl.contains(pos)) {
-                    bl.add(pos);
+                if (bl != null) {
+                    boolean alreadyPresent = false;
+                    for (BlockPos b : bl) {
+                        if (b != null && b.getX() == pos.getX() && b.getY() == pos.getY() && b.getZ() == pos.getZ()) {
+                            alreadyPresent = true;
+                            break;
+                        }
+                    }
+                    if (!alreadyPresent) {
+                        bl.add(BetterBlockPos.from(pos));
+                        bl.add(pos.immutable());
+                    }
                 }
             }
 
-            java.lang.reflect.Field locsField = findField(mineProc.getClass(), "knownOreLocations");
             if (locsField != null) {
                 locsField.setAccessible(true);
                 @SuppressWarnings("unchecked")
                 List<BlockPos> locs = (List<BlockPos>) locsField.get(mineProc);
                 if (locs != null) {
-                    locs.remove(pos);
+                    locs.removeIf(p -> p != null && p.getX() == pos.getX() && p.getY() == pos.getY() && p.getZ() == pos.getZ());
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            Debug.logWarning("Failed to sync Baritone blacklist for " + pos.toShortString() + ": " + t.getMessage());
+        }
+    }
+
+    /**
+     * Re-injects all currently active blacklists into Baritone.
+     * Essential because Baritone's mine() method resets its internal blacklist to a new empty list.
+     */
+    public void syncAllBlacklistedToBaritone() {
+        if (blacklistedBlocks.isEmpty()) return;
+        try {
+            IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (primary == null || primary.getMineProcess() == null) return;
+
+            Object mineProc = primary.getMineProcess();
+            java.lang.reflect.Field blacklistField = findField(mineProc.getClass(), "blacklist");
+            java.lang.reflect.Field locsField = findField(mineProc.getClass(), "knownOreLocations");
+
+            if (blacklistField == null) return;
+            blacklistField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<BlockPos> bl = (List<BlockPos>) blacklistField.get(mineProc);
+
+            List<BlockPos> locs = null;
+            if (locsField != null) {
+                locsField.setAccessible(true);
+                @SuppressWarnings("unchecked")
+                List<BlockPos> l = (List<BlockPos>) locsField.get(mineProc);
+                locs = l;
+            }
+
+            if (bl != null) {
+                long now = System.currentTimeMillis();
+                for (Map.Entry<BlockPos, Long> entry : blacklistedBlocks.entrySet()) {
+                    if (now <= entry.getValue()) {
+                        BlockPos pos = entry.getKey();
+                        boolean alreadyPresent = false;
+                        for (BlockPos b : bl) {
+                            if (b != null && b.getX() == pos.getX() && b.getY() == pos.getY() && b.getZ() == pos.getZ()) {
+                                alreadyPresent = true;
+                                break;
+                            }
+                        }
+                        if (!alreadyPresent) {
+                            bl.add(BetterBlockPos.from(pos));
+                            bl.add(pos.immutable());
+                        }
+                        if (locs != null) {
+                            locs.removeIf(p -> p != null && p.getX() == pos.getX() && p.getY() == pos.getY() && p.getZ() == pos.getZ());
+                        }
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            Debug.logWarning("Failed to sync all Baritone blacklists: " + t.getMessage());
         }
     }
 
