@@ -139,11 +139,7 @@ public class MarvionBeatMinecraftTask extends Task {
             pruneInventoryClutter(mc, player);
         }
 
-        // If an active subtask is in progress, continue executing it until completion!
-        if (currentSubTask != null && !currentSubTask.isFinished()) {
-            return currentSubTask;
-        }
-
+        // Determine phase FIRST every tick to allow immediate progression when goals/prerequisites are met
         SpeedrunPhase oldPhase = currentPhase;
         determinePhase(mc);
         setDebugState(currentPhase.getDescription());

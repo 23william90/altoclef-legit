@@ -1,6 +1,7 @@
 package adris.altoclef.control;
 
 import adris.altoclef.AltoClef;
+import adris.altoclef.tasks.construction.MineBlockTask;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.utils.input.Input;
@@ -175,9 +176,20 @@ public class InventoryManager {
             if (!stack.isEmpty()) {
                 String name = getItemName(stack);
                 for (String kw : keywords) {
-                    String kwLower = kw.toLowerCase();
-                    if (name.contains(kwLower) || (kwLower.equals("cobble") && (name.contains("cobbled_deepslate") || name.contains("blackstone")))) {
+                    if (MineBlockTask.matchesResource(name, kw, (String[]) null)) {
                         count += stack.getCount();
+                        break;
+                    }
+                }
+            }
+        }
+        if (player.containerMenu != null) {
+            ItemStack carried = player.containerMenu.getCarried();
+            if (carried != null && !carried.isEmpty()) {
+                String name = getItemName(carried);
+                for (String kw : keywords) {
+                    if (MineBlockTask.matchesResource(name, kw, (String[]) null)) {
+                        count += carried.getCount();
                         break;
                     }
                 }

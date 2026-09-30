@@ -1,5 +1,6 @@
 package adris.altoclef.control;
 
+import adris.altoclef.tasks.construction.MineBlockTask;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -192,51 +193,6 @@ public class WorldMemoryTracker {
     }
 
     private boolean matchesResource(String itemName, String resourceName, String... aliases) {
-        String lowerName = itemName.toLowerCase();
-        String lowerRes = resourceName.toLowerCase();
-
-        String normName = lowerName.replace('_', ' ');
-        String normRes = lowerRes.replace('_', ' ');
-
-        if (lowerName.contains(lowerRes) || lowerRes.contains(lowerName)) return true;
-        if (normName.contains(normRes) || normRes.contains(normName)) return true;
-
-        // Wood / log special matching
-        if (lowerRes.contains("wood") || lowerRes.contains("log")) {
-            if (lowerName.contains("log") || lowerName.contains("wood")) return true;
-        }
-
-        // Cobblestone / stone special matching
-        if (lowerRes.contains("cobble") || lowerRes.contains("stone")) {
-            if (lowerName.contains("cobble") || lowerName.contains("stone") || lowerName.contains("deepslate")) return true;
-        }
-
-        // Iron special matching
-        if (lowerRes.contains("iron")) {
-            if (lowerName.contains("raw_iron") || lowerName.contains("iron_ore") || lowerName.contains("iron_ingot")) return true;
-        }
-
-        // Coal special matching
-        if (lowerRes.contains("coal")) {
-            if (lowerName.contains("coal") || lowerName.contains("charcoal")) return true;
-        }
-
-        // Diamond special matching
-        if (lowerRes.contains("diamond")) {
-            if (lowerName.contains("diamond")) return true;
-        }
-
-        if (aliases != null) {
-            for (String alias : aliases) {
-                if (alias != null && !alias.isEmpty()) {
-                    String a = alias.toLowerCase();
-                    if (lowerName.contains(a) || a.contains(lowerName)) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
+        return MineBlockTask.matchesResource(itemName, resourceName, aliases);
     }
 }

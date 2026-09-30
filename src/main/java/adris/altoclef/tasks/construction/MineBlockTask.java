@@ -8,6 +8,7 @@ import adris.altoclef.tasksystem.Task;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.pathing.goals.GoalNear;
+import baritone.api.utils.BlockOptionalMetaLookup;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -51,6 +52,7 @@ public class MineBlockTask extends Task {
     private final int targetCount;
     private final Block[] resolvedBlocks;
     private final String[] blockNames;
+    private final BlockOptionalMetaLookup bomLookup;
     private boolean finished = false;
     private int cooldown = 0;
 
@@ -80,6 +82,17 @@ public class MineBlockTask extends Task {
         }
         this.resolvedBlocks = blocks.toArray(new Block[0]);
         this.blockNames = names.toArray(new String[0]);
+
+        BlockOptionalMetaLookup lookup = null;
+        try {
+            if (this.resolvedBlocks.length > 0) {
+                lookup = new BlockOptionalMetaLookup(this.resolvedBlocks);
+            } else if (this.blockNames.length > 0) {
+                lookup = new BlockOptionalMetaLookup(this.blockNames);
+            }
+        } catch (Throwable ignored) {
+        }
+        this.bomLookup = lookup;
     }
 
     public ToolTier getRequiredTier() {
@@ -290,23 +303,50 @@ public class MineBlockTask extends Task {
             return null;
         }
 
-        // 2. SEARCH FOR DROPPED ITEMS: Check for ground drops before mining blocks!
-        ItemEntity bestDrop = WorldMemoryTracker.getInstance().findBestDroppedItem(mc, mc.player, resourceName, blockNames);
-        if (bestDrop != null) {
-            if (primary != null) {
-                if (primary.getMineProcess().isActive()) {
-                    primary.getMineProcess().cancel();
-                }
-                primary.getCustomGoalProcess().setGoalAndPath(new GoalNear(bestDrop.blockPosition(), 0));
+        // 2. CONTINUOUS VEIN MINING & GROUND DROPS
+        boolean isDestroying = mc.gameMode != null && mc.gameMode.isDestroying();
+        boolean blocksNearby = isTargetBlockWithinReach(mc, mc.player);
+        boolean isBaritoneMining = primary != null && primary.getMineProcess().isActive();
+        boolean isBaritonePathing = primary != null && primary.getPathingBehavior().isPathing();
+
+        if (isDestroying || blocksNearby) {
+            // Actively destroying a block, or adjacent vein block within reach:
+            // CONTINUOUS MINING: Do NOT interrupt or cancel mining for dropped items!
+            // Baritone breaks reachable blocks in the vein, vacuuming drops as the bot moves/mines.
+            if (!isBaritoneMining && !isBaritonePathing) {
+                startMining();
             }
-            setDebugState("Collecting dropped " + resourceName + " (" + (int) mc.player.distanceTo(bestDrop) + "m away)");
-            RenderDistanceManager.revert(mc);
-            return null;
+        } else {
+            // No target blocks within immediate reach and not destroying.
+            // Check for nearby dropped items (e.g. from the vein just mined, or dropped on ground).
+            ItemEntity bestDrop = WorldMemoryTracker.getInstance().findBestDroppedItem(mc, mc.player, resourceName, blockNames);
+            if (bestDrop != null) {
+                // If a target block is reachable from the dropped item's location:
+                // Mine that block so we path there and scoop the drop simultaneously!
+                if (isTargetBlockNearPos(mc, bestDrop.position(), 4.5)) {
+                    if (!isBaritoneMining) {
+                        startMining();
+                    }
+                } else if (mc.player.distanceTo(bestDrop) < 16.0f || !isBaritoneMining) {
+                    // Isolated drop: path to collect it before traveling far away
+                    if (primary != null) {
+                        if (primary.getMineProcess().isActive()) {
+                            primary.getMineProcess().cancel();
+                        }
+                        primary.getCustomGoalProcess().setGoalAndPath(new GoalNear(bestDrop.blockPosition(), 0));
+                    }
+                    setDebugState("Collecting dropped " + resourceName + " (" + (int) mc.player.distanceTo(bestDrop) + "m away)");
+                    RenderDistanceManager.revert(mc);
+                    return null;
+                }
+            } else if (!isBaritoneMining && !isBaritonePathing && (primary == null || !primary.getCustomGoalProcess().isActive())) {
+                startMining();
+            }
         }
 
         // 3. MINING BLOCKS & DYNAMIC RENDER DISTANCE
-        boolean isMining = primary != null && (primary.getMineProcess().isActive() || primary.getPathingBehavior().isPathing());
-        if (isMining) {
+        boolean isBusy = primary != null && (primary.getMineProcess().isActive() || primary.getPathingBehavior().isPathing());
+        if (isBusy) {
             // Actively mining / traveling to a discovered block -> Keep render distance low to save CPU/memory
             RenderDistanceManager.revert(mc);
         } else {
@@ -317,7 +357,7 @@ public class MineBlockTask extends Task {
         if (cooldown-- <= 0) {
             cooldown = 20; // Check every 1 second
             try {
-                if (primary != null && !primary.getMineProcess().isActive() && !primary.getPathingBehavior().isPathing()) {
+                if (primary != null && !primary.getMineProcess().isActive() && !primary.getPathingBehavior().isPathing() && !primary.getCustomGoalProcess().isActive()) {
                     startMining();
                 }
             } catch (Throwable ignored) {
@@ -340,22 +380,203 @@ public class MineBlockTask extends Task {
         }
     }
 
-    private int getCurrentCount() {
+    public boolean isTargetBlockWithinReach(Minecraft mc, LocalPlayer player) {
+        if (player == null) return false;
+        return isTargetBlockNearPos(mc, player.position(), 4.5);
+    }
+
+    public boolean isTargetBlockNearPos(Minecraft mc, Vec3 pos, double radius) {
+        if (mc.level == null || pos == null) return false;
+        BlockPos center = BlockPos.containing(pos);
+        int r = (int) Math.ceil(radius);
+        for (int x = -r; x <= r; x++) {
+            for (int y = -2; y <= 3; y++) {
+                for (int z = -r; z <= r; z++) {
+                    BlockPos p = center.offset(x, y, z);
+                    if (p.closerToCenterThan(pos, radius)) {
+                        Block block = mc.level.getBlockState(p).getBlock();
+                        if (isTargetBlock(block)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    public boolean isTargetBlock(Block block) {
+        if (block == null || block == Blocks.AIR) return false;
+        for (Block b : resolvedBlocks) {
+            if (b == block) return true;
+        }
+        try {
+            Identifier id = BuiltInRegistries.BLOCK.getKey(block);
+            if (id != null) {
+                String path = id.getPath().toLowerCase();
+                for (String name : blockNames) {
+                    if (path.contains(name.toLowerCase()) || name.toLowerCase().contains(path)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    public int getCurrentCount() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return 0;
         Inventory inv = mc.player.getInventory();
         int count = 0;
-        String lowerTarget = resourceName.toLowerCase();
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack stack = inv.getItem(i);
-            if (!stack.isEmpty()) {
-                String itemName = InventoryManager.getItemName(stack);
-                if (itemName.contains(lowerTarget) || lowerTarget.contains(itemName)) {
-                    count += stack.getCount();
-                }
+            if (!stack.isEmpty() && matchesStack(stack)) {
+                count += stack.getCount();
+            }
+        }
+        if (mc.player.containerMenu != null) {
+            ItemStack carried = mc.player.containerMenu.getCarried();
+            if (carried != null && !carried.isEmpty() && matchesStack(carried)) {
+                count += carried.getCount();
             }
         }
         return count;
+    }
+
+    public boolean matchesStack(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        try {
+            if (bomLookup != null && bomLookup.has(stack)) {
+                return true;
+            }
+        } catch (Throwable ignored) {
+        }
+        String itemName = InventoryManager.getItemName(stack);
+        return matchesResource(itemName, resourceName, blockNames);
+    }
+
+    public static boolean matchesResource(String itemName, String resourceName, String... aliases) {
+        if (itemName == null || itemName.isEmpty()) return false;
+        itemName = itemName.toLowerCase();
+
+        String cleanResource = (resourceName != null ? resourceName.toLowerCase().replace(" ", "_") : "");
+
+        // Exact or direct substring match
+        if (!cleanResource.isEmpty()) {
+            if (itemName.equals(cleanResource) || itemName.contains(cleanResource) || cleanResource.contains(itemName)) {
+                return true;
+            }
+            String strippedItem = itemName.replace("_", "");
+            String strippedResource = cleanResource.replace("_", "");
+            if (strippedItem.contains(strippedResource) || strippedResource.contains(strippedItem)) {
+                return true;
+            }
+        }
+
+        // Check against aliases / target block names directly
+        if (aliases != null) {
+            for (String alias : aliases) {
+                if (alias == null || alias.isEmpty()) continue;
+                String cleanAlias = alias.toLowerCase().replace("minecraft:", "").trim();
+                if (itemName.equals(cleanAlias) || itemName.contains(cleanAlias) || cleanAlias.contains(itemName)) {
+                    return true;
+                }
+            }
+        }
+
+        // Semantic Ore & Material Drop Mappings (Essential for modern Minecraft 1.17+)
+        boolean isIron = cleanResource.contains("iron") || containsAny(aliases, "iron");
+        if (isIron) {
+            if (itemName.contains("raw_iron") || itemName.contains("iron_ingot") || itemName.contains("iron_ore") || itemName.equals("iron_block") || itemName.equals("raw_iron_block")) {
+                return true;
+            }
+        }
+
+        boolean isCopper = cleanResource.contains("copper") || containsAny(aliases, "copper");
+        if (isCopper) {
+            if (itemName.contains("raw_copper") || itemName.contains("copper_ingot") || itemName.contains("copper_ore") || itemName.contains("copper_block") || itemName.contains("raw_copper_block")) {
+                return true;
+            }
+        }
+
+        boolean isGold = cleanResource.contains("gold") || containsAny(aliases, "gold");
+        if (isGold) {
+            if (itemName.contains("raw_gold") || itemName.contains("gold_ingot") || itemName.contains("gold_ore") || itemName.contains("gold_nugget") || itemName.contains("gold_block") || itemName.contains("raw_gold_block")) {
+                return true;
+            }
+        }
+
+        boolean isDiamond = cleanResource.contains("diamond") || containsAny(aliases, "diamond");
+        if (isDiamond) {
+            if (itemName.contains("diamond")) {
+                return true;
+            }
+        }
+
+        boolean isCoal = cleanResource.contains("coal") || cleanResource.contains("fuel") || containsAny(aliases, "coal");
+        if (isCoal) {
+            if (itemName.equals("coal") || itemName.equals("charcoal") || itemName.contains("coal_ore") || itemName.equals("coal_block")) {
+                return true;
+            }
+        }
+
+        boolean isLapis = cleanResource.contains("lapis") || containsAny(aliases, "lapis");
+        if (isLapis) {
+            if (itemName.contains("lapis")) {
+                return true;
+            }
+        }
+
+        boolean isRedstone = cleanResource.contains("redstone") || containsAny(aliases, "redstone");
+        if (isRedstone) {
+            if (itemName.contains("redstone")) {
+                return true;
+            }
+        }
+
+        boolean isEmerald = cleanResource.contains("emerald") || containsAny(aliases, "emerald");
+        if (isEmerald) {
+            if (itemName.contains("emerald")) {
+                return true;
+            }
+        }
+
+        boolean isStone = cleanResource.contains("stone") || cleanResource.contains("cobble") || containsAny(aliases, "stone", "cobble", "deepslate");
+        if (isStone) {
+            if (itemName.contains("cobble") || itemName.contains("stone") || itemName.contains("deepslate") || itemName.contains("blackstone") || itemName.contains("tuff") || itemName.contains("andesite") || itemName.contains("diorite") || itemName.contains("granite")) {
+                return true;
+            }
+        }
+
+        boolean isWood = cleanResource.contains("wood") || cleanResource.contains("log") || containsAny(aliases, "log", "wood", "stem", "hyphae");
+        if (isWood) {
+            if (itemName.endsWith("_log") || itemName.endsWith("_wood") || itemName.endsWith("_stem") || itemName.endsWith("_hyphae") || itemName.equals("log") || itemName.equals("wood")) {
+                return true;
+            }
+        }
+
+        boolean isPlank = cleanResource.contains("plank") || containsAny(aliases, "plank");
+        if (isPlank) {
+            if (itemName.endsWith("_planks") || itemName.equals("planks")) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static boolean containsAny(String[] array, String... targets) {
+        if (array == null) return false;
+        for (String item : array) {
+            if (item == null) continue;
+            String lower = item.toLowerCase();
+            for (String target : targets) {
+                if (lower.contains(target.toLowerCase())) return true;
+            }
+        }
+        return false;
     }
 
     @Override

@@ -81,11 +81,7 @@ public class BeatMinecraftTask extends Task {
             return null;
         }
 
-        // If an active subtask is in progress, continue executing it until completion!
-        if (currentSubTask != null && !currentSubTask.isFinished()) {
-            return currentSubTask;
-        }
-
+        // Determine phase FIRST every tick to allow immediate progression when goals/prerequisites are met
         SpeedrunPhase oldPhase = currentPhase;
         determinePhase(mc);
         setDebugState(currentPhase.getDescription());
@@ -102,7 +98,7 @@ public class BeatMinecraftTask extends Task {
             currentPhase = SpeedrunPhase.SLAY_DRAGON;
         }
 
-        // If phase changed or current subtask finished, create next subtask
+        // If phase changed or current subtask finished or null, transition to new subtask
         if (currentPhase != oldPhase || currentSubTask == null || currentSubTask.isFinished()) {
             if (currentSubTask != null && !currentSubTask.isFinished()) {
                 currentSubTask.stop(null);
