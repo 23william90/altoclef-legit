@@ -156,7 +156,8 @@ public class InventoryManager {
             if (!stack.isEmpty()) {
                 String name = getItemName(stack);
                 for (String kw : keywords) {
-                    if (name.contains(kw.toLowerCase())) {
+                    String kwLower = kw.toLowerCase();
+                    if (name.contains(kwLower) || (kwLower.equals("cobble") && (name.contains("cobbled_deepslate") || name.contains("blackstone")))) {
                         count += stack.getCount();
                         break;
                     }

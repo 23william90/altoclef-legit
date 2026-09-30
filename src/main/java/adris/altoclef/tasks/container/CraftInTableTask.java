@@ -38,6 +38,10 @@ public class CraftInTableTask extends Task {
     private int noSpotTicks = 0;
     private int placedTableWaitTicks = 0;
     private int craftingGuiTicks = 0;
+    private int ticksSinceLastCraftAction = 0;
+    private int extractAttempts = 0;
+    private int lastIngredientSourceSlot = -1;
+    private String currentIngredientKeyword = null;
     private int craftingMenuOpenCloseLoops = 0;
     private boolean wasMenuOpen = false;
 
@@ -74,6 +78,10 @@ public class CraftInTableTask extends Task {
         Map<Integer, String> iPick = Map.of(1, "iron_ingot", 2, "iron_ingot", 3, "iron_ingot", 5, "stick", 8, "stick");
         RECIPES.put("iron_pickaxe", new RecipeDef(iPick, Map.of("iron_ingot", 3, "stick", 2)));
 
+        // Iron Sword: 2 iron ingots (2,5), 1 stick (8)
+        Map<Integer, String> iSword = Map.of(2, "iron_ingot", 5, "iron_ingot", 8, "stick");
+        RECIPES.put("iron_sword", new RecipeDef(iSword, Map.of("iron_ingot", 2, "stick", 1)));
+
         // Shield: 6 planks (1,3,4,5,6,8), 1 iron ingot (2)
         Map<Integer, String> shield = Map.of(1, "plank", 2, "iron_ingot", 3, "plank", 4, "plank", 5, "plank", 6, "plank", 8, "plank");
         RECIPES.put("shield", new RecipeDef(shield, Map.of("plank", 6, "iron_ingot", 1)));
@@ -89,6 +97,10 @@ public class CraftInTableTask extends Task {
         // Diamond Pickaxe: 3 diamonds (1,2,3), 2 sticks (5,8)
         Map<Integer, String> dPick = Map.of(1, "diamond", 2, "diamond", 3, "diamond", 5, "stick", 8, "stick");
         RECIPES.put("diamond_pickaxe", new RecipeDef(dPick, Map.of("diamond", 3, "stick", 2)));
+
+        // Diamond Sword: 2 diamonds (2,5), 1 stick (8)
+        Map<Integer, String> dSword = Map.of(2, "diamond", 5, "diamond", 8, "stick");
+        RECIPES.put("diamond_sword", new RecipeDef(dSword, Map.of("diamond", 2, "stick", 1)));
 
         // Golden Helmet: 5 gold ingots (1,2,3,4,6)
         Map<Integer, String> gHelm = Map.of(1, "gold_ingot", 2, "gold_ingot", 3, "gold_ingot", 4, "gold_ingot", 6, "gold_ingot");
@@ -116,6 +128,10 @@ public class CraftInTableTask extends Task {
         noSpotTicks = 0;
         placedTableWaitTicks = 0;
         craftingGuiTicks = 0;
+        ticksSinceLastCraftAction = 0;
+        extractAttempts = 0;
+        lastIngredientSourceSlot = -1;
+        currentIngredientKeyword = null;
         craftingMenuOpenCloseLoops = 0;
         wasMenuOpen = false;
         setDebugState("Crafting " + itemTarget + " in Crafting Table...");
@@ -154,6 +170,11 @@ public class CraftInTableTask extends Task {
             if (!wasMenuOpen) {
                 wasMenuOpen = true;
                 craftingMenuOpenCloseLoops++;
+                craftingGuiTicks = 0;
+                ticksSinceLastCraftAction = 0;
+                extractAttempts = 0;
+                lastIngredientSourceSlot = -1;
+                currentIngredientKeyword = null;
             }
             executeRecipeCraft(mc, player, menu, recipe);
             return null;
@@ -161,10 +182,13 @@ public class CraftInTableTask extends Task {
 
         wasMenuOpen = false;
         craftingGuiTicks = 0;
+        ticksSinceLastCraftAction = 0;
+        lastIngredientSourceSlot = -1;
+        currentIngredientKeyword = null;
 
-        // 3. Safety Watchdog: If stuck in repeated open-close crafting loops (>= 3 times):
+        // 3. Safety Watchdog: If stuck in repeated open-close crafting loops (>= 6 times):
         // Mine the Crafting Table to break the loop, pick it up, and relocate!
-        if (craftingMenuOpenCloseLoops >= 3) {
+        if (craftingMenuOpenCloseLoops >= 6) {
             BlockPos nearby = findNearbyTable(mc, player);
             if (nearby != null) {
                 setDebugState("Safety Watchdog: Stuck in crafting loop (" + craftingMenuOpenCloseLoops + "x)! Mining table to reset...");
@@ -193,7 +217,7 @@ public class CraftInTableTask extends Task {
                 if (req.getKey().equals("stick")) {
                     int planks = InventoryManager.countItems(player, "plank");
                     if (planks >= 2) {
-                        int plankSlot = findPlankSlotInInventory(player);
+                        int plankSlot = findPlankSlotInInventory(player, 2);
                         if (plankSlot != -1) {
                             setDebugState("Auto 2x2 crafting sticks...");
                             AltoClef.getInstance().getInventoryManager().craft2x2Sticks(mc, player, plankSlot);
@@ -325,7 +349,7 @@ public class CraftInTableTask extends Task {
             int planks = InventoryManager.countItems(player, "plank");
             if (planks >= 4) {
                 setDebugState("Auto 2x2 crafting Crafting Table...");
-                int plankSlot = findPlankSlotInInventory(player);
+                int plankSlot = findPlankSlotInInventory(player, 4);
                 if (plankSlot != -1) {
                     AltoClef.getInstance().getInventoryManager().craft2x2CraftingTable(mc, player, plankSlot);
                     stepTimer = 4;
@@ -438,27 +462,32 @@ public class CraftInTableTask extends Task {
     private void executeRecipeCraft(Minecraft mc, LocalPlayer player, CraftingMenu menu, RecipeDef recipe) {
         int containerId = menu.containerId;
         craftingGuiTicks++;
+        ticksSinceLastCraftAction++;
 
-        // 1. Success check: Does player inventory or container already have the crafted item?
-        // First, if cursor is holding the target item, deposit it into an empty inventory slot!
+        // 1. Success check: Does player inventory already have targetCount items?
+        // First, if cursor is holding the target item, deposit it into an inventory slot!
         ItemStack carried = menu.getCarried();
         if (!carried.isEmpty() && getItemName(carried).contains(itemTarget)) {
-            int emptySlot = findEmptyPlayerSlotInContainer(menu);
-            if (emptySlot != -1) {
-                mc.gameMode.handleContainerInput(containerId, emptySlot, 0, ContainerInput.PICKUP, player);
-                stepTimer = 1;
+            int targetSlot = findSlotToDepositTarget(menu, itemTarget);
+            if (targetSlot != -1) {
+                setDebugState("Depositing crafted " + itemTarget + " into inventory...");
+                mc.gameMode.handleContainerInput(containerId, targetSlot, 0, ContainerInput.PICKUP, player);
+                ticksSinceLastCraftAction = 0;
+                stepTimer = 2;
                 return;
             }
         }
 
-        // Count how many of target item we have in player inventory + cursor + container
-        int currentCount = countTargetInMenuOrInventory(menu, player, itemTarget);
+        // Count how many of target item we have in player inventory
+        int currentCount = InventoryManager.countItems(player, itemTarget);
         if (currentCount >= targetCount) {
             // Deposit carried item if still holding anything
             if (!menu.getCarried().isEmpty()) {
-                int emptySlot = findEmptyPlayerSlotInContainer(menu);
-                if (emptySlot != -1) {
-                    mc.gameMode.handleContainerInput(containerId, emptySlot, 0, ContainerInput.PICKUP, player);
+                int targetSlot = findDisposableSlotInContainer(menu);
+                if (targetSlot != -1) {
+                    mc.gameMode.handleContainerInput(containerId, targetSlot, 0, ContainerInput.PICKUP, player);
+                    stepTimer = 2;
+                    return;
                 }
             }
             player.closeContainer();
@@ -466,130 +495,168 @@ public class CraftInTableTask extends Task {
             finished = true;
             craftingMenuOpenCloseLoops = 0;
             craftingGuiTicks = 0;
+            ticksSinceLastCraftAction = 0;
             return;
         }
 
         // 2. Result Slot (Slot 0) Extraction:
         ItemStack resultStack = menu.getSlot(0).getItem();
         if (!resultStack.isEmpty()) {
-            setDebugState("Extracting " + getItemName(resultStack) + " from craft result slot 0...");
-            // Plan A (first 3 attempts): Shift-click (QUICK_MOVE)
-            if (craftingGuiTicks < 6) {
+            // Before extracting, ensure cursor is empty
+            if (!menu.getCarried().isEmpty()) {
+                int targetSlot = (lastIngredientSourceSlot >= 10 && lastIngredientSourceSlot < menu.slots.size())
+                        ? lastIngredientSourceSlot 
+                        : findDisposableSlotInContainer(menu);
+                if (targetSlot != -1) {
+                    mc.gameMode.handleContainerInput(containerId, targetSlot, 0, ContainerInput.PICKUP, player);
+                    lastIngredientSourceSlot = -1;
+                    currentIngredientKeyword = null;
+                    ticksSinceLastCraftAction = 0;
+                    stepTimer = 2;
+                    return;
+                }
+            }
+
+            extractAttempts++;
+            ticksSinceLastCraftAction = 0;
+            if (extractAttempts <= 3) {
+                setDebugState("Extracting " + getItemName(resultStack) + " from craft result slot 0 (Shift-Click)...");
                 mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
             } else {
-                // Plan B (fallback): Direct PICKUP onto cursor!
+                // Fallback: Pick up to cursor, then deposit next tick
+                setDebugState("Extracting " + getItemName(resultStack) + " from craft result slot 0 (Pickup)...");
                 mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.PICKUP, player);
             }
-            stepTimer = 2; // Allow container click packet to settle
+            stepTimer = 2;
             return;
+        } else {
+            extractAttempts = 0;
         }
 
-        // If cursor has leftover items that are NOT the target, put them back into an empty inventory slot
+        // 3. Handle Carried Item in Cursor:
         if (!menu.getCarried().isEmpty()) {
-            int emptySlot = findEmptyPlayerSlotInContainer(menu);
-            if (emptySlot != -1) {
-                mc.gameMode.handleContainerInput(containerId, emptySlot, 0, ContainerInput.PICKUP, player);
-                stepTimer = 1;
+            ItemStack carriedStack = menu.getCarried();
+            String carriedName = getItemName(carriedStack);
+
+            // Is the carried item an ingredient we need to place into an unpopulated grid slot?
+            if (currentIngredientKeyword != null && matchesKeyword(carriedName, currentIngredientKeyword)) {
+                // Find next slot that needs this ingredient
+                int targetGridSlot = -1;
+                for (Map.Entry<Integer, String> entry : recipe.gridSlots.entrySet()) {
+                    if (entry.getValue().equals(currentIngredientKeyword)) {
+                        ItemStack inSlot = menu.getSlot(entry.getKey()).getItem();
+                        if (inSlot.isEmpty() || !matchesKeyword(getItemName(inSlot), currentIngredientKeyword)) {
+                            targetGridSlot = entry.getKey();
+                            break;
+                        }
+                    }
+                }
+
+                if (targetGridSlot != -1) {
+                    // Right-click grid slot to place 1 item
+                    setDebugState("Placing " + currentIngredientKeyword + " into grid slot " + targetGridSlot);
+                    mc.gameMode.handleContainerInput(containerId, targetGridSlot, 1, ContainerInput.PICKUP, player);
+                    ticksSinceLastCraftAction = 0;
+                    stepTimer = 2;
+                    return;
+                }
+            }
+
+            // If carried item is no longer needed in the grid, return it to inventory
+            int returnSlot = (lastIngredientSourceSlot >= 10 && lastIngredientSourceSlot < menu.slots.size()) 
+                    ? lastIngredientSourceSlot 
+                    : findDisposableSlotInContainer(menu);
+            if (returnSlot != -1) {
+                setDebugState("Returning leftover ingredient to inventory slot " + returnSlot);
+                mc.gameMode.handleContainerInput(containerId, returnSlot, 0, ContainerInput.PICKUP, player);
+                lastIngredientSourceSlot = -1;
+                currentIngredientKeyword = null;
+                ticksSinceLastCraftAction = 0;
+                stepTimer = 2;
                 return;
             }
         }
 
-        // 3. Clear any stray items in the 3x3 grid that shouldn't be there
+        // 4. Clear any stray/wrong items in the 3x3 crafting grid (slots 1..9)
         for (int s = 1; s <= 9; s++) {
             ItemStack inSlot = menu.getSlot(s).getItem();
             if (!inSlot.isEmpty()) {
-                String expected = recipe.gridSlots.get(s);
-                if (expected == null || !getItemName(inSlot).contains(expected)) {
+                String expectedKeyword = recipe.gridSlots.get(s);
+                if (expectedKeyword == null || !matchesKeyword(getItemName(inSlot), expectedKeyword)) {
+                    setDebugState("Clearing stray item " + getItemName(inSlot) + " from grid slot " + s);
                     mc.gameMode.handleContainerInput(containerId, s, 0, ContainerInput.QUICK_MOVE, player);
-                    stepTimer = 1;
+                    ticksSinceLastCraftAction = 0;
+                    stepTimer = 2;
                     return;
                 }
             }
         }
 
-        // 4. Check if all recipe grid slots are ALREADY populated correctly
-        boolean allSlotsPopulated = true;
+        // 5. Check if all recipe grid slots are satisfied
+        boolean allSlotsSatisfied = true;
         for (Map.Entry<Integer, String> entry : recipe.gridSlots.entrySet()) {
             ItemStack inSlot = menu.getSlot(entry.getKey()).getItem();
-            if (inSlot.isEmpty() || !getItemName(inSlot).contains(entry.getValue())) {
-                allSlotsPopulated = false;
+            if (inSlot.isEmpty() || !matchesKeyword(getItemName(inSlot), entry.getValue())) {
+                allSlotsSatisfied = false;
                 break;
             }
         }
 
-        // If all slots are already populated, but slot 0 is empty:
-        if (allSlotsPopulated) {
-            // Recipe is complete in the grid! Wait for server to sync slot 0.
-            // If waited > 6 ticks and slot 0 is still empty, click slot 0 to force server evaluation
-            if (craftingGuiTicks > 6 && craftingGuiTicks % 4 == 0) {
-                setDebugState("Forcing craft evaluation on slot 0...");
+        if (allSlotsSatisfied) {
+            // Recipe is complete in grid! Wait for server to sync slot 0.
+            // If waited > 8 ticks with all slots populated and slot 0 still empty, click slot 0 to nudge server
+            if (ticksSinceLastCraftAction > 8 && ticksSinceLastCraftAction % 6 == 0) {
+                setDebugState("Nudging server craft evaluation on slot 0...");
                 mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
             }
             stepTimer = 2;
             return;
         }
 
-        // 5. Fill 3x3 crafting grid according to recipe (one group per tick to prevent desync)
-        Map<String, List<Integer>> keywordToSlots = new LinkedHashMap<>();
+        // 6. Grid is not satisfied: pick up the next required ingredient
         for (Map.Entry<Integer, String> entry : recipe.gridSlots.entrySet()) {
-            keywordToSlots.computeIfAbsent(entry.getValue(), k -> new ArrayList<>()).add(entry.getKey());
-        }
-
-        for (Map.Entry<String, List<Integer>> group : keywordToSlots.entrySet()) {
-            String keyword = group.getKey();
-            List<Integer> slotsToFill = group.getValue();
-
-            // Check which slots in this group still need an item
-            List<Integer> unpopulated = new ArrayList<>();
-            for (int slot : slotsToFill) {
-                ItemStack inSlot = menu.getSlot(slot).getItem();
-                if (inSlot.isEmpty() || !getItemName(inSlot).contains(keyword)) {
-                    unpopulated.add(slot);
+            int slot = entry.getKey();
+            String keyword = entry.getValue();
+            ItemStack inSlot = menu.getSlot(slot).getItem();
+            if (inSlot.isEmpty() || !matchesKeyword(getItemName(inSlot), keyword)) {
+                int invSlot = findBestSlotInContainer(menu, keyword);
+                if (invSlot == -1) {
+                    setDebugState("Missing ingredient stack for " + keyword + " in inventory!");
+                    player.closeContainer();
+                    stepTimer = 4;
+                    return;
                 }
-            }
-            if (unpopulated.isEmpty()) continue;
 
-            int invSlot = findBestSlotInContainer(menu, keyword);
-            if (invSlot == -1) {
-                setDebugState("Missing ingredient stack for " + keyword + " in inventory!");
+                setDebugState("Picking up " + keyword + " from inventory slot " + invSlot);
+                lastIngredientSourceSlot = invSlot;
+                currentIngredientKeyword = keyword;
+                mc.gameMode.handleContainerInput(containerId, invSlot, 0, ContainerInput.PICKUP, player);
+                ticksSinceLastCraftAction = 0;
+                stepTimer = 2;
                 return;
             }
-
-            // Pick up ingredient stack from inventory
-            mc.gameMode.handleContainerInput(containerId, invSlot, 0, ContainerInput.PICKUP, player);
-
-            // Right click each needed slot to place 1 item
-            for (int gridSlot : unpopulated) {
-                ItemStack current = menu.getSlot(gridSlot).getItem();
-                if (current.isEmpty() || !getItemName(current).contains(keyword)) {
-                    mc.gameMode.handleContainerInput(containerId, gridSlot, 1, ContainerInput.PICKUP, player);
-                }
-            }
-
-            // Return remaining items to inventory slot
-            mc.gameMode.handleContainerInput(containerId, invSlot, 0, ContainerInput.PICKUP, player);
-
-            stepTimer = 1;
-            return; // Do one ingredient group per tick to avoid packet flood!
         }
 
-        // 6. Watchdog inside GUI:
-        // If GUI is open for > 35 ticks (~1.75s) without success:
-        if (craftingGuiTicks > 35) {
-            setDebugState("Watchdog: Crafting GUI unresponsive. Closing container to reset...");
+        // 7. Watchdog inside GUI:
+        // If inactive for > 70 ticks (~3.5s) or GUI open for > 140 ticks (~7.0s) without completing:
+        if (ticksSinceLastCraftAction > 70 || craftingGuiTicks > 140) {
+            setDebugState("Watchdog: Crafting GUI unresponsive (" + ticksSinceLastCraftAction + " idle ticks). Resetting...");
             if (!menu.getCarried().isEmpty()) {
-                int emptySlot = findEmptyPlayerSlotInContainer(menu);
-                if (emptySlot != -1) {
-                    mc.gameMode.handleContainerInput(containerId, emptySlot, 0, ContainerInput.PICKUP, player);
+                int targetSlot = findDisposableSlotInContainer(menu);
+                if (targetSlot != -1) {
+                    mc.gameMode.handleContainerInput(containerId, targetSlot, 0, ContainerInput.PICKUP, player);
                 }
             }
             player.closeContainer();
             craftingGuiTicks = 0;
+            ticksSinceLastCraftAction = 0;
+            lastIngredientSourceSlot = -1;
+            currentIngredientKeyword = null;
             stepTimer = 4;
             return;
         }
 
-        stepTimer = 2; // Wait 2 ticks for recipe synchronization
+        stepTimer = 2;
     }
 
     private void clearCraftingGrid(Minecraft mc, LocalPlayer player, CraftingMenu menu, int containerId) {
@@ -827,13 +894,34 @@ public class CraftInTableTask extends Task {
         }
     }
 
-    private int findBestSlotInContainer(CraftingMenu menu, String keyword) {
+    public static boolean matchesKeyword(String itemName, String keyword) {
+        if (itemName == null || keyword == null) return false;
+        itemName = itemName.toLowerCase();
         keyword = keyword.toLowerCase();
+        if (itemName.equals(keyword) || itemName.contains(keyword)) {
+            return true;
+        }
+        if (keyword.equals("cobble")) {
+            return itemName.contains("cobblestone") || itemName.contains("cobbled_deepslate") || itemName.contains("blackstone");
+        }
+        if (keyword.equals("plank")) {
+            return itemName.endsWith("_planks") || itemName.contains("plank");
+        }
+        if (keyword.equals("log")) {
+            return itemName.endsWith("_log") || itemName.endsWith("_wood") || itemName.endsWith("_stem") || itemName.contains("log");
+        }
+        if (keyword.equals("wool")) {
+            return itemName.endsWith("_wool") || itemName.contains("wool");
+        }
+        return false;
+    }
+
+    private int findBestSlotInContainer(CraftingMenu menu, String keyword) {
         int bestSlot = -1;
         int maxCount = 0;
         for (int i = 10; i < menu.slots.size(); i++) {
             ItemStack stack = menu.getSlot(i).getItem();
-            if (!stack.isEmpty() && getItemName(stack).contains(keyword)) {
+            if (!stack.isEmpty() && matchesKeyword(getItemName(stack), keyword)) {
                 if (stack.getCount() > maxCount) {
                     maxCount = stack.getCount();
                     bestSlot = i;
@@ -852,10 +940,35 @@ public class CraftInTableTask extends Task {
         return -1;
     }
 
-    private int findPlankSlotInInventory(LocalPlayer player) {
+    private int findDisposableSlotInContainer(CraftingMenu menu) {
+        int empty = findEmptyPlayerSlotInContainer(menu);
+        if (empty != -1) return empty;
+        for (int i = 10; i < menu.slots.size(); i++) {
+            ItemStack stack = menu.getSlot(i).getItem();
+            if (!stack.isEmpty()) {
+                String name = getItemName(stack);
+                if (name.contains("rotten_flesh") || name.contains("seeds") || name.contains("poisonous_potato")) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private int findSlotToDepositTarget(CraftingMenu menu, String target) {
+        for (int i = 10; i < menu.slots.size(); i++) {
+            ItemStack stack = menu.getSlot(i).getItem();
+            if (!stack.isEmpty() && getItemName(stack).contains(target) && stack.getCount() < stack.getMaxStackSize()) {
+                return i;
+            }
+        }
+        return findDisposableSlotInContainer(menu);
+    }
+
+    private int findPlankSlotInInventory(LocalPlayer player, int minCount) {
         for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.USE_ROW_SLOT_END; i++) {
             ItemStack stack = player.inventoryMenu.getSlot(i).getItem();
-            if (!stack.isEmpty() && getItemName(stack).contains("plank") && stack.getCount() >= 4) {
+            if (!stack.isEmpty() && matchesKeyword(getItemName(stack), "plank") && stack.getCount() >= minCount) {
                 return i;
             }
         }
@@ -865,7 +978,7 @@ public class CraftInTableTask extends Task {
     private int findLogSlotInInventory(LocalPlayer player) {
         for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.USE_ROW_SLOT_END; i++) {
             ItemStack stack = player.inventoryMenu.getSlot(i).getItem();
-            if (!stack.isEmpty() && getItemName(stack).contains("log")) {
+            if (!stack.isEmpty() && matchesKeyword(getItemName(stack), "log")) {
                 return i;
             }
         }
