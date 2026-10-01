@@ -238,36 +238,8 @@ public class MarvionBeatMinecraftTask extends Task {
     }
 
     private void applyPerformanceOptimizations(Minecraft mc, Task currentTask) {
-        if (!config.renderDistanceManipulation || mc.options == null) return;
-
-        try {
-            if (currentTask instanceof MineBlockTask mine) {
-                String target = mine.toString().toLowerCase();
-                if (target.contains("blaze") || target.contains("spawner") || target.contains("stronghold")) {
-                    // High render distance to detect fortresses and strongholds
-                    if (mc.options.renderDistance().get() != 32) {
-                        mc.options.renderDistance().set(32);
-                        mc.options.entityDistanceScaling().set(5.0);
-                    }
-                    return;
-                }
-                if (target.contains("coal") || target.contains("iron") || target.contains("diamond") || target.contains("cobble") || target.contains("obsidian")) {
-                    // Low render distance during underground mining
-                    if (mc.options.renderDistance().get() != 2) {
-                        mc.options.renderDistance().set(2);
-                        mc.options.entityDistanceScaling().set(0.5);
-                    }
-                    return;
-                }
-            }
-
-            // Balanced default
-            if (mc.options.renderDistance().get() != 12) {
-                mc.options.renderDistance().set(12);
-                mc.options.entityDistanceScaling().set(1.0);
-            }
-        } catch (Throwable ignored) {
-        }
+        // No dynamic render distance alterations at runtime.
+        // Changing render distance forces Minecraft to reload chunks and kills active Baritone pathing.
     }
 
     private void scanAndLootChests(Minecraft mc, LocalPlayer player) {

@@ -785,8 +785,24 @@ public class CraftInTableTask extends Task {
         ItemStack carried = menu.getCarried();
         if (!carried.isEmpty() && isCraftTarget(carried, itemTarget)) {
             int targetSlot = findSlotToDepositTarget(menu, itemTarget);
-            setDebugState("Depositing crafted " + itemTarget + " into inventory (slot " + targetSlot + ")...");
-            mc.gameMode.handleContainerInput(containerId, targetSlot, 0, ContainerInput.PICKUP, player);
+            if (targetSlot != -1 && targetSlot != -999) {
+                setDebugState("Depositing crafted " + itemTarget + " into inventory (slot " + targetSlot + ")...");
+                ItemStack dest = menu.getSlot(targetSlot).getItem();
+                if (!dest.isEmpty() && !dest.is(carried.getItem())) {
+                    // Throw out the disposable junk item to free the slot
+                    mc.gameMode.handleContainerInput(containerId, targetSlot, 1, ContainerInput.THROW, player);
+                }
+                mc.gameMode.handleContainerInput(containerId, targetSlot, 0, ContainerInput.PICKUP, player);
+            } else {
+                int throwSlot = findDisposableSlotInContainer(menu);
+                if (throwSlot != -1) {
+                    setDebugState("Throwing out junk in slot " + throwSlot + " to make room for " + itemTarget);
+                    mc.gameMode.handleContainerInput(containerId, throwSlot, 1, ContainerInput.THROW, player);
+                    mc.gameMode.handleContainerInput(containerId, throwSlot, 0, ContainerInput.PICKUP, player);
+                } else {
+                    mc.gameMode.handleContainerInput(containerId, -999, 0, ContainerInput.PICKUP, player);
+                }
+            }
             ticksSinceLastCraftAction = 0;
             stepTimer = 2;
             return;
@@ -839,12 +855,9 @@ public class CraftInTableTask extends Task {
             extractAttempts++;
             ticksSinceLastCraftAction = 0;
             recipeBookAttempts = 0;
-            if (extractAttempts <= 2) {
-                setDebugState("Extracting " + getItemName(resultStack) + " from craft result slot 0 (Shift-Click)...");
-                mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
-            } else {
-                // Fallback: Pick up to cursor, then deposit next tick
-                setDebugState("Extracting " + getItemName(resultStack) + " from craft result slot 0 (Pickup)...");
+            setDebugState("Extracting " + getItemName(resultStack) + " from craft result slot 0...");
+            mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
+            if (extractAttempts >= 2 && !menu.getSlot(0).getItem().isEmpty()) {
                 mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.PICKUP, player);
             }
             stepTimer = 2;
@@ -876,9 +889,10 @@ public class CraftInTableTask extends Task {
             if (recipeId != null) {
                 recipeBookAttempts++;
                 setDebugState("Auto-crafting " + itemTarget + " via Recipe Book...");
-                mc.gameMode.handlePlaceRecipe(containerId, recipeId, false);
+                mc.gameMode.handlePlaceRecipe(containerId, recipeId, true);
+                mc.gameMode.handleContainerInput(containerId, 0, 0, ContainerInput.QUICK_MOVE, player);
                 ticksSinceLastCraftAction = 0;
-                stepTimer = 3;
+                stepTimer = 2;
                 return;
             }
         }
@@ -899,10 +913,9 @@ public class CraftInTableTask extends Task {
 
             boolean matchesDominant = dominantStone == null || currentIngredientKeyword == null || !currentIngredientKeyword.equals("cobble") || carriedName.contains(dominantStone);
 
-            // Is the carried item an ingredient we need to place into an unpopulated grid slot?
+            // Is the carried item an ingredient we need to place into unpopulated grid slots?
             if (currentIngredientKeyword != null && matchesKeyword(carriedName, currentIngredientKeyword) && matchesDominant) {
-                // Find next slot that needs this ingredient
-                int targetGridSlot = -1;
+                int placedCount = 0;
                 for (Map.Entry<Integer, String> entry : recipe.gridSlots.entrySet()) {
                     if (entry.getValue().equals(currentIngredientKeyword)) {
                         ItemStack inSlot = menu.getSlot(entry.getKey()).getItem();
@@ -911,16 +924,16 @@ public class CraftInTableTask extends Task {
                             needs = true;
                         }
                         if (needs) {
-                            targetGridSlot = entry.getKey();
-                            break;
+                            // Right-click grid slot to place 1 item
+                            mc.gameMode.handleContainerInput(containerId, entry.getKey(), 1, ContainerInput.PICKUP, player);
+                            placedCount++;
+                            if (menu.getCarried().isEmpty()) break;
                         }
                     }
                 }
 
-                if (targetGridSlot != -1) {
-                    // Right-click grid slot to place 1 item
-                    setDebugState("Placing " + currentIngredientKeyword + " into grid slot " + targetGridSlot);
-                    mc.gameMode.handleContainerInput(containerId, targetGridSlot, 1, ContainerInput.PICKUP, player);
+                if (placedCount > 0) {
+                    setDebugState("Placed " + placedCount + "x " + currentIngredientKeyword + " into crafting grid");
                     ticksSinceLastCraftAction = 0;
                     stepTimer = 2;
                     return;
@@ -1463,7 +1476,9 @@ public class CraftInTableTask extends Task {
             ItemStack stack = menu.getSlot(i).getItem();
             if (!stack.isEmpty()) {
                 String name = getItemName(stack);
-                if (name.contains("rotten_flesh") || name.contains("seeds") || name.contains("poisonous_potato")) {
+                if (name.contains("rotten_flesh") || name.contains("seeds") || name.contains("poisonous_potato") ||
+                    name.contains("spider_eye") || name.contains("diorite") || name.contains("granite") ||
+                    name.contains("andesite") || name.contains("tuff") || name.contains("gravel")) {
                     return i;
                 }
             }
@@ -1479,16 +1494,7 @@ public class CraftInTableTask extends Task {
         }
         int empty = findEmptyPlayerSlotInContainer(menu);
         if (empty != -1) return empty;
-        for (int i = 10; i < menu.slots.size(); i++) {
-            ItemStack stack = menu.getSlot(i).getItem();
-            if (!stack.isEmpty()) {
-                String name = getItemName(stack);
-                if (name.contains("rotten_flesh") || name.contains("seeds") || name.contains("poisonous_potato")) {
-                    return i;
-                }
-            }
-        }
-        return -999;
+        return findDisposableSlotInContainer(menu);
     }
 
     private int findPlankSlotInInventory(LocalPlayer player, int minCount) {

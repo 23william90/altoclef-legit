@@ -42,7 +42,7 @@ public class SafeRandomShimmyTask extends Task {
 
         baritone.getInputOverrideHandler().setInputForceState(Input.SNEAK, true);
         baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, true);
-        baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_LEFT, true);
+        baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_LEFT, false);
         return null;
     }
 

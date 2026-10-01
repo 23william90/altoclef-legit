@@ -127,6 +127,18 @@ public class GetItemTask extends Task {
             return InventoryManager.countItems(player, "coal", "charcoal") >= count;
         }
 
+        if (clean.equals("raw_iron") || clean.equals("iron_ore")) {
+            return InventoryManager.countItems(player, "raw_iron", "iron_ore", "deepslate_iron_ore", "iron_ingot") >= count;
+        }
+
+        if (clean.equals("raw_gold") || clean.equals("gold_ore")) {
+            return InventoryManager.countItems(player, "raw_gold", "gold_ore", "gold_ingot") >= count;
+        }
+
+        if (clean.equals("raw_copper") || clean.equals("copper_ore")) {
+            return InventoryManager.countItems(player, "raw_copper", "copper_ore", "copper_ingot") >= count;
+        }
+
         return InventoryManager.countItems(player, clean) >= count;
     }
 
@@ -153,24 +165,60 @@ public class GetItemTask extends Task {
 
         // 1. COMPOUND SETS
         if (clean.equals("diamond_armor") || clean.equals("diamond_gear")) {
-            if (!hasEquippedOrInventory(player, "diamond_helmet")) return evaluateTree(mc, player, "diamond_helmet", 1);
-            if (!hasEquippedOrInventory(player, "diamond_chestplate")) return evaluateTree(mc, player, "diamond_chestplate", 1);
-            if (!hasEquippedOrInventory(player, "diamond_leggings")) return evaluateTree(mc, player, "diamond_leggings", 1);
-            if (!hasEquippedOrInventory(player, "diamond_boots")) return evaluateTree(mc, player, "diamond_boots", 1);
+            if (!hasEquippedOrInventory(player, "diamond_helmet")) {
+                Task t = evaluateTree(mc, player, "diamond_helmet", 1);
+                if (t != null) return t;
+            }
+            if (!hasEquippedOrInventory(player, "diamond_chestplate")) {
+                Task t = evaluateTree(mc, player, "diamond_chestplate", 1);
+                if (t != null) return t;
+            }
+            if (!hasEquippedOrInventory(player, "diamond_leggings")) {
+                Task t = evaluateTree(mc, player, "diamond_leggings", 1);
+                if (t != null) return t;
+            }
+            if (!hasEquippedOrInventory(player, "diamond_boots")) {
+                Task t = evaluateTree(mc, player, "diamond_boots", 1);
+                if (t != null) return t;
+            }
             return null;
         }
         if (clean.equals("iron_armor") || clean.equals("iron_gear")) {
-            if (!hasEquippedOrInventory(player, "iron_helmet")) return evaluateTree(mc, player, "iron_helmet", 1);
-            if (!hasEquippedOrInventory(player, "iron_chestplate")) return evaluateTree(mc, player, "iron_chestplate", 1);
-            if (!hasEquippedOrInventory(player, "iron_leggings")) return evaluateTree(mc, player, "iron_leggings", 1);
-            if (!hasEquippedOrInventory(player, "iron_boots")) return evaluateTree(mc, player, "iron_boots", 1);
+            if (!hasEquippedOrInventory(player, "iron_helmet")) {
+                Task t = evaluateTree(mc, player, "iron_helmet", 1);
+                if (t != null) return t;
+            }
+            if (!hasEquippedOrInventory(player, "iron_chestplate")) {
+                Task t = evaluateTree(mc, player, "iron_chestplate", 1);
+                if (t != null) return t;
+            }
+            if (!hasEquippedOrInventory(player, "iron_leggings")) {
+                Task t = evaluateTree(mc, player, "iron_leggings", 1);
+                if (t != null) return t;
+            }
+            if (!hasEquippedOrInventory(player, "iron_boots")) {
+                Task t = evaluateTree(mc, player, "iron_boots", 1);
+                if (t != null) return t;
+            }
             return null;
         }
         if (clean.equals("golden_armor") || clean.equals("gold_armor")) {
-            if (!hasEquippedOrInventory(player, "golden_helmet")) return evaluateTree(mc, player, "golden_helmet", 1);
-            if (!hasEquippedOrInventory(player, "golden_chestplate")) return evaluateTree(mc, player, "golden_chestplate", 1);
-            if (!hasEquippedOrInventory(player, "golden_leggings")) return evaluateTree(mc, player, "golden_leggings", 1);
-            if (!hasEquippedOrInventory(player, "golden_boots")) return evaluateTree(mc, player, "golden_boots", 1);
+            if (!hasEquippedOrInventory(player, "golden_helmet")) {
+                Task t = evaluateTree(mc, player, "golden_helmet", 1);
+                if (t != null) return t;
+            }
+            if (!hasEquippedOrInventory(player, "golden_chestplate")) {
+                Task t = evaluateTree(mc, player, "golden_chestplate", 1);
+                if (t != null) return t;
+            }
+            if (!hasEquippedOrInventory(player, "golden_leggings")) {
+                Task t = evaluateTree(mc, player, "golden_leggings", 1);
+                if (t != null) return t;
+            }
+            if (!hasEquippedOrInventory(player, "golden_boots")) {
+                Task t = evaluateTree(mc, player, "golden_boots", 1);
+                if (t != null) return t;
+            }
             return null;
         }
 
@@ -223,23 +271,41 @@ public class GetItemTask extends Task {
         // 9. UTILITIES & GEAR
         if (clean.equals("shield")) {
             if (InventoryManager.countItems(player, "shield") > 0) return null;
-            if (InventoryManager.countItems(player, "iron_ingot") < 1) return evaluateTree(mc, player, "iron_ingot", 1);
+            if (InventoryManager.countItems(player, "iron_ingot") < 1) {
+                Task ironTask = evaluateTree(mc, player, "iron_ingot", 1);
+                if (ironTask != null) return ironTask;
+            }
             int totalPlanks = InventoryManager.countItems(player, "log") * 4 + InventoryManager.countItems(player, "plank");
-            if (totalPlanks < 6) return evaluateTree(mc, player, "log", 2);
-            if (!ensureCraftingTable(mc, player)) return evaluateTree(mc, player, "crafting_table", 1);
+            if (totalPlanks < 6) {
+                Task woodTask = evaluateTree(mc, player, "log", 2);
+                if (woodTask != null) return woodTask;
+            }
+            if (!ensureCraftingTable(mc, player)) {
+                Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+                if (tableTask != null) return tableTask;
+            }
             return new CraftInTableTask("shield");
         }
 
         if (clean.equals("bucket") || clean.equals("water_bucket")) {
             if (InventoryManager.countItems(player, clean) >= count) return null;
-            if (InventoryManager.countItems(player, "iron_ingot") < 3) return evaluateTree(mc, player, "iron_ingot", 3);
-            if (!ensureCraftingTable(mc, player)) return evaluateTree(mc, player, "crafting_table", 1);
+            if (InventoryManager.countItems(player, "iron_ingot") < 3) {
+                Task ironTask = evaluateTree(mc, player, "iron_ingot", 3);
+                if (ironTask != null) return ironTask;
+            }
+            if (!ensureCraftingTable(mc, player)) {
+                Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+                if (tableTask != null) return tableTask;
+            }
             return new CraftInTableTask("bucket");
         }
 
         if (clean.equals("flint_and_steel")) {
             if (InventoryManager.countItems(player, "flint_and_steel") > 0) return null;
-            if (InventoryManager.countItems(player, "iron_ingot") < 1) return evaluateTree(mc, player, "iron_ingot", 1);
+            if (InventoryManager.countItems(player, "iron_ingot") < 1) {
+                Task ironTask = evaluateTree(mc, player, "iron_ingot", 1);
+                if (ironTask != null) return ironTask;
+            }
             if (InventoryManager.countItems(player, "flint") < 1) return new MineBlockTask(mod, "flint", "gravel", 1);
             return new CraftInTableTask("flint_and_steel");
         }
@@ -247,7 +313,10 @@ public class GetItemTask extends Task {
         if (clean.equals("crafting_table")) {
             if (InventoryManager.countItems(player, "crafting_table") > 0 || isCraftingTableNearby(mc, player, 16)) return null;
             int totalPlanks = InventoryManager.countItems(player, "log") * 4 + InventoryManager.countItems(player, "plank");
-            if (totalPlanks < 4) return evaluateTree(mc, player, "log", 2);
+            if (totalPlanks < 4) {
+                Task logTask = evaluateTree(mc, player, "log", 2);
+                if (logTask != null) return logTask;
+            }
             return new CraftInTableTask("crafting_table");
         }
 
@@ -257,26 +326,37 @@ public class GetItemTask extends Task {
             int deepslateCobble = InventoryManager.countItems(player, "cobbled_deepslate");
             int blackstone = InventoryManager.countItems(player, "blackstone");
             if (normalCobble < 8 && deepslateCobble < 8 && blackstone < 8) {
+                Task cobbleTask;
                 if (deepslateCobble > normalCobble) {
-                    return evaluateTree(mc, player, "cobbled_deepslate", 8);
+                    cobbleTask = evaluateTree(mc, player, "cobbled_deepslate", 8);
                 } else {
-                    return evaluateTree(mc, player, "cobblestone", 8);
+                    cobbleTask = evaluateTree(mc, player, "cobblestone", 8);
                 }
+                if (cobbleTask != null) return cobbleTask;
             }
-            if (!ensureCraftingTable(mc, player)) return evaluateTree(mc, player, "crafting_table", 1);
+            if (!ensureCraftingTable(mc, player)) {
+                Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+                if (tableTask != null) return tableTask;
+            }
             return new CraftInTableTask("furnace");
         }
 
         if (clean.equals("stick")) {
             if (InventoryManager.countItems(player, "stick") >= count) return null;
             int totalPlanks = InventoryManager.countItems(player, "log") * 4 + InventoryManager.countItems(player, "plank");
-            if (totalPlanks < 2) return evaluateTree(mc, player, "log", 1);
+            if (totalPlanks < 2) {
+                Task logTask = evaluateTree(mc, player, "log", 1);
+                if (logTask != null) return logTask;
+            }
             return new CraftInTableTask("stick");
         }
 
         if (clean.equals("plank") || clean.equals("planks")) {
             if (InventoryManager.countItems(player, "plank") >= count) return null;
-            if (InventoryManager.countItems(player, "log") < 1) return evaluateTree(mc, player, "log", Math.max(1, count / 4));
+            if (InventoryManager.countItems(player, "log") < 1) {
+                Task logTask = evaluateTree(mc, player, "log", Math.max(1, count / 4));
+                if (logTask != null) return logTask;
+            }
             return new CraftInTableTask("planks");
         }
 
@@ -288,18 +368,21 @@ public class GetItemTask extends Task {
 
             // Check furnace
             if (!isFurnaceNearby(mc, player, 16) && InventoryManager.countItems(player, "furnace") == 0) {
-                return evaluateTree(mc, player, "furnace", 1);
+                Task fTask = evaluateTree(mc, player, "furnace", 1);
+                if (fTask != null) return fTask;
             }
             // Check fuel
             int fuel = InventoryManager.countItems(player, "coal", "charcoal", "log");
             int neededFuel = Math.max(1, (needed + 7) / 8);
             if (fuel < neededFuel) {
-                return evaluateTree(mc, player, "coal", Math.max(4, neededFuel));
+                Task fuelTask = evaluateTree(mc, player, "coal", Math.max(4, neededFuel));
+                if (fuelTask != null) return fuelTask;
             }
             // Check raw material
             int raw = InventoryManager.countItems(player, "raw_iron", "iron_ore", "deepslate_iron_ore");
             if (raw < needed) {
-                return evaluateTree(mc, player, "raw_iron", needed);
+                Task rawTask = evaluateTree(mc, player, "raw_iron", needed);
+                if (rawTask != null) return rawTask;
             }
             return new SmeltInFurnaceTask("raw_iron", needed);
         }
@@ -310,16 +393,19 @@ public class GetItemTask extends Task {
             int needed = count - currentIngots;
 
             if (!isFurnaceNearby(mc, player, 16) && InventoryManager.countItems(player, "furnace") == 0) {
-                return evaluateTree(mc, player, "furnace", 1);
+                Task fTask = evaluateTree(mc, player, "furnace", 1);
+                if (fTask != null) return fTask;
             }
             int fuel = InventoryManager.countItems(player, "coal", "charcoal", "log");
             int neededFuel = Math.max(1, (needed + 7) / 8);
             if (fuel < neededFuel) {
-                return evaluateTree(mc, player, "coal", Math.max(4, neededFuel));
+                Task fuelTask = evaluateTree(mc, player, "coal", Math.max(4, neededFuel));
+                if (fuelTask != null) return fuelTask;
             }
             int raw = InventoryManager.countItems(player, "raw_gold", "gold_ore", "nether_gold_ore");
             if (raw < needed) {
-                return evaluateTree(mc, player, "raw_gold", needed);
+                Task rawTask = evaluateTree(mc, player, "raw_gold", needed);
+                if (rawTask != null) return rawTask;
             }
             return new SmeltInFurnaceTask("raw_gold", needed);
         }
@@ -330,16 +416,19 @@ public class GetItemTask extends Task {
             int needed = count - currentIngots;
 
             if (!isFurnaceNearby(mc, player, 16) && InventoryManager.countItems(player, "furnace") == 0) {
-                return evaluateTree(mc, player, "furnace", 1);
+                Task fTask = evaluateTree(mc, player, "furnace", 1);
+                if (fTask != null) return fTask;
             }
             int fuel = InventoryManager.countItems(player, "coal", "charcoal", "log");
             int neededFuel = Math.max(1, (needed + 7) / 8);
             if (fuel < neededFuel) {
-                return evaluateTree(mc, player, "coal", Math.max(4, neededFuel));
+                Task fuelTask = evaluateTree(mc, player, "coal", Math.max(4, neededFuel));
+                if (fuelTask != null) return fuelTask;
             }
             int raw = InventoryManager.countItems(player, "raw_copper", "copper_ore");
             if (raw < needed) {
-                return evaluateTree(mc, player, "raw_copper", needed);
+                Task rawTask = evaluateTree(mc, player, "raw_copper", needed);
+                if (rawTask != null) return rawTask;
             }
             return new SmeltInFurnaceTask("raw_copper", needed);
         }
@@ -351,7 +440,8 @@ public class GetItemTask extends Task {
             ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
             if (tier.getLevel() < ToolTier.IRON.getLevel()) {
                 setDebugState("Tree: Requires Iron Pickaxe to mine Diamonds");
-                return evaluateTree(mc, player, "iron_pickaxe", 1);
+                Task pickTask = evaluateTree(mc, player, "iron_pickaxe", 1);
+                if (pickTask != null) return pickTask;
             }
             return new MineBlockTask(mod, "diamond ore", "diamond_ore deepslate_diamond_ore", count);
         }
@@ -362,7 +452,8 @@ public class GetItemTask extends Task {
             ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
             if (tier.getLevel() < ToolTier.STONE.getLevel()) {
                 setDebugState("Tree: Requires Stone Pickaxe to mine Iron Ore");
-                return evaluateTree(mc, player, "stone_pickaxe", 1);
+                Task pickTask = evaluateTree(mc, player, "stone_pickaxe", 1);
+                if (pickTask != null) return pickTask;
             }
             return new MineBlockTask(mod, "iron ore", "iron_ore deepslate_iron_ore raw_iron_block", count);
         }
@@ -373,7 +464,8 @@ public class GetItemTask extends Task {
             ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
             if (tier.getLevel() < ToolTier.IRON.getLevel()) {
                 setDebugState("Tree: Requires Iron Pickaxe to mine Gold Ore");
-                return evaluateTree(mc, player, "iron_pickaxe", 1);
+                Task pickTask = evaluateTree(mc, player, "iron_pickaxe", 1);
+                if (pickTask != null) return pickTask;
             }
             return new MineBlockTask(mod, "gold ore", "gold_ore deepslate_gold_ore nether_gold_ore", count);
         }
@@ -383,7 +475,8 @@ public class GetItemTask extends Task {
             if (current >= count) return null;
             ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
             if (tier.getLevel() < ToolTier.STONE.getLevel()) {
-                return evaluateTree(mc, player, "stone_pickaxe", 1);
+                Task pickTask = evaluateTree(mc, player, "stone_pickaxe", 1);
+                if (pickTask != null) return pickTask;
             }
             return new MineBlockTask(mod, "copper ore", "copper_ore deepslate_copper_ore", count);
         }
@@ -393,7 +486,8 @@ public class GetItemTask extends Task {
             if (current >= count) return null;
             ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
             if (tier.getLevel() < ToolTier.WOOD.getLevel()) {
-                return evaluateTree(mc, player, "wooden_pickaxe", 1);
+                Task pickTask = evaluateTree(mc, player, "wooden_pickaxe", 1);
+                if (pickTask != null) return pickTask;
             }
             return new MineBlockTask(mod, "coal", "coal_ore deepslate_coal_ore", count);
         }
@@ -404,7 +498,8 @@ public class GetItemTask extends Task {
             ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
             if (tier.getLevel() < ToolTier.DIAMOND.getLevel()) {
                 setDebugState("Tree: Requires Diamond Pickaxe to mine Obsidian");
-                return evaluateTree(mc, player, "diamond_pickaxe", 1);
+                Task pickTask = evaluateTree(mc, player, "diamond_pickaxe", 1);
+                if (pickTask != null) return pickTask;
             }
             return new MineBlockTask(mod, "obsidian", "obsidian", count);
         }
@@ -415,7 +510,8 @@ public class GetItemTask extends Task {
             ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
             if (tier.getLevel() < ToolTier.WOOD.getLevel()) {
                 setDebugState("Tree: Requires Wooden Pickaxe to mine Cobbled Deepslate");
-                return evaluateTree(mc, player, "wooden_pickaxe", 1);
+                Task pickTask = evaluateTree(mc, player, "wooden_pickaxe", 1);
+                if (pickTask != null) return pickTask;
             }
             return new MineBlockTask(mod, "cobbled deepslate", "deepslate cobbled_deepslate", count);
         }
@@ -426,7 +522,8 @@ public class GetItemTask extends Task {
             ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
             if (tier.getLevel() < ToolTier.WOOD.getLevel()) {
                 setDebugState("Tree: Requires Wooden Pickaxe to mine Cobblestone");
-                return evaluateTree(mc, player, "wooden_pickaxe", 1);
+                Task pickTask = evaluateTree(mc, player, "wooden_pickaxe", 1);
+                if (pickTask != null) return pickTask;
             }
             return new MineBlockTask(mod, "cobblestone", "stone cobblestone", count);
         }
@@ -437,7 +534,8 @@ public class GetItemTask extends Task {
             ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
             if (tier.getLevel() < ToolTier.WOOD.getLevel()) {
                 setDebugState("Tree: Requires Wooden Pickaxe to mine Stone");
-                return evaluateTree(mc, player, "wooden_pickaxe", 1);
+                Task pickTask = evaluateTree(mc, player, "wooden_pickaxe", 1);
+                if (pickTask != null) return pickTask;
             }
             return new MineBlockTask(mod, "cobblestone", "stone cobblestone deepslate cobbled_deepslate", count);
         }
@@ -475,7 +573,8 @@ public class GetItemTask extends Task {
                 default -> "wooden_pickaxe";
             };
             setDebugState("Tree: Requires " + requiredPick + " to mine " + targetItem);
-            return evaluateTree(mc, player, requiredPick, 1);
+            Task pickTask = evaluateTree(mc, player, requiredPick, 1);
+            if (pickTask != null) return pickTask;
         }
 
         return fallbackMine;
@@ -487,11 +586,13 @@ public class GetItemTask extends Task {
         int mat = InventoryManager.countItems(player, material);
         if (mat < materialCount) {
             setDebugState("Tree: Need " + (materialCount - mat) + " more " + material + " for " + armorPiece);
-            return evaluateTree(mc, player, material, materialCount);
+            Task matTask = evaluateTree(mc, player, material, materialCount);
+            if (matTask != null) return matTask;
         }
 
         if (!ensureCraftingTable(mc, player)) {
-            return evaluateTree(mc, player, "crafting_table", 1);
+            Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+            if (tableTask != null) return tableTask;
         }
 
         return new CraftInTableTask(armorPiece);
@@ -503,16 +604,19 @@ public class GetItemTask extends Task {
         int mat = InventoryManager.countItems(player, material);
         if (mat < matCount) {
             setDebugState("Tree: Need " + (matCount - mat) + " more " + material + " for " + toolName);
-            return evaluateTree(mc, player, material, matCount);
+            Task matTask = evaluateTree(mc, player, material, matCount);
+            if (matTask != null) return matTask;
         }
 
         int sticks = InventoryManager.countItems(player, "stick");
         if (sticks < stickCount) {
-            return evaluateTree(mc, player, "stick", stickCount);
+            Task stickTask = evaluateTree(mc, player, "stick", stickCount);
+            if (stickTask != null) return stickTask;
         }
 
         if (!ensureCraftingTable(mc, player)) {
-            return evaluateTree(mc, player, "crafting_table", 1);
+            Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+            if (tableTask != null) return tableTask;
         }
 
         return new CraftInTableTask(toolName);
@@ -524,11 +628,13 @@ public class GetItemTask extends Task {
         int totalPlanks = InventoryManager.countItems(player, "log") * 4 + InventoryManager.countItems(player, "plank");
         int needed = plankCount + (stickCount * 2);
         if (totalPlanks < needed) {
-            return evaluateTree(mc, player, "log", Math.max(2, needed / 4));
+            Task woodTask = evaluateTree(mc, player, "log", Math.max(2, needed / 4));
+            if (woodTask != null) return woodTask;
         }
 
         if (!ensureCraftingTable(mc, player)) {
-            return evaluateTree(mc, player, "crafting_table", 1);
+            Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+            if (tableTask != null) return tableTask;
         }
 
         return new CraftInTableTask(toolName);

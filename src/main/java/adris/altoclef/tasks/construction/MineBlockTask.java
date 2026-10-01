@@ -278,11 +278,14 @@ public class MineBlockTask extends Task {
             return null;
         }
 
-        // Equip the pickaxe in hand if required
+        // Equip the pickaxe in hand if required, but avoid fighting Baritone's tool switching while breaking blocks
         if (required.getLevel() >= ToolTier.WOOD.getLevel()) {
-            int pickSlot = getPickaxeHotbarSlot(mc.player);
-            if (pickSlot != -1 && mc.player.getInventory().getSelectedSlot() != pickSlot) {
-                mc.player.getInventory().setSelectedSlot(pickSlot);
+            boolean isDestroying = (mc.gameMode != null && mc.gameMode.isDestroying());
+            if (!isDestroying) {
+                int pickSlot = getPickaxeHotbarSlot(mc.player);
+                if (pickSlot != -1 && mc.player.getInventory().getSelectedSlot() != pickSlot) {
+                    mc.player.getInventory().setSelectedSlot(pickSlot);
+                }
             }
         }
 
@@ -294,7 +297,6 @@ public class MineBlockTask extends Task {
 
         if (current >= targetCount) {
             finished = true;
-            RenderDistanceManager.revert(mc);
             WorldMemoryTracker.getInstance().clearBlacklist();
             onStop(null);
             return null;
@@ -448,7 +450,6 @@ public class MineBlockTask extends Task {
                 primary.getCustomGoalProcess().setGoalAndPath(new GoalNear(deathDrop, 1));
             }
             setDebugState("Recovering death drops at " + deathDrop.toShortString());
-            RenderDistanceManager.revert(mc);
             return null;
         }
 
@@ -459,10 +460,12 @@ public class MineBlockTask extends Task {
             // Actively destroying a block, or adjacent vein block within reach:
             // CONTINUOUS MINING: Do NOT interrupt or cancel mining for dropped items!
             if (!isBaritoneMining && !isBaritonePathing) {
+                if (primary != null && primary.getCustomGoalProcess().isActive()) {
+                    primary.getCustomGoalProcess().onLostControl();
+                }
                 startMining();
             }
         } else {
-            // No target blocks within immediate reach and not destroying.
             // Check for nearby dropped items (e.g. from the vein just mined, or dropped on ground).
             ItemEntity bestDrop = WorldMemoryTracker.getInstance().findBestDroppedItem(mc, mc.player, resourceName, blockNames);
             if (bestDrop != null) {
@@ -470,33 +473,30 @@ public class MineBlockTask extends Task {
                 // Mine that block so we path there and scoop the drop simultaneously!
                 if (isTargetBlockNearPos(mc, bestDrop.position(), 4.5)) {
                     if (!isBaritoneMining) {
+                        if (primary != null && primary.getCustomGoalProcess().isActive()) {
+                            primary.getCustomGoalProcess().onLostControl();
+                        }
                         startMining();
                     }
-                } else if (mc.player.distanceTo(bestDrop) < 16.0f || !isBaritoneMining) {
-                    // Isolated drop: path to collect it before traveling far away
-                    if (primary != null) {
-                        if (primary.getMineProcess().isActive()) {
-                            primary.getMineProcess().cancel();
-                        }
-                        primary.getCustomGoalProcess().setGoalAndPath(new GoalNear(bestDrop.blockPosition(), 0));
+                } else if (!isBaritoneMining && mc.player.distanceTo(bestDrop) < 16.0f) {
+                    // Isolated drop: path to collect it only if Baritone is not already mining
+                    if (primary != null && !primary.getPathingBehavior().isPathing()) {
+                        primary.getCustomGoalProcess().setGoalAndPath(new GoalNear(bestDrop.blockPosition(), 1));
                     }
                     setDebugState("Collecting dropped " + resourceName + " (" + (int) mc.player.distanceTo(bestDrop) + "m away)");
-                    RenderDistanceManager.revert(mc);
                     return null;
                 }
-            } else if (!isBaritoneMining && !isBaritonePathing && (primary == null || !primary.getCustomGoalProcess().isActive())) {
-                startMining();
+            } else {
+                if (primary != null && primary.getCustomGoalProcess().isActive()) {
+                    primary.getCustomGoalProcess().onLostControl();
+                }
+                if (!isBaritoneMining && !isBaritonePathing) {
+                    startMining();
+                }
             }
         }
 
-        // 6. MINING BLOCKS & DYNAMIC RENDER DISTANCE
-        boolean isBusy = primary != null && (primary.getMineProcess().isActive() || primary.getPathingBehavior().isPathing());
-        if (isBusy) {
-            RenderDistanceManager.revert(mc);
-        } else {
-            RenderDistanceManager.requestSearchBoost(mc, 26, 300);
-        }
-
+        // 6. CONTINUOUS MINING WATCHDOG
         if (cooldown-- <= 0) {
             cooldown = 20; // Check every 1 second
             try {
@@ -513,7 +513,6 @@ public class MineBlockTask extends Task {
     @Override
     protected void onStop(Task interruptTask) {
         Minecraft mc = Minecraft.getInstance();
-        RenderDistanceManager.forceRevert(mc);
         WorldMemoryTracker.getInstance().clearBlacklist();
         currentBreakingPos = null;
         breakingStartTime = 0;

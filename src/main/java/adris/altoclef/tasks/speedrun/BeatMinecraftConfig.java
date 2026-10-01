@@ -15,7 +15,7 @@ public class BeatMinecraftConfig {
     public boolean rePickupFurnace = true;
 
     // Marvion optimizations
-    public boolean renderDistanceManipulation = true;
+    public boolean renderDistanceManipulation = false;
     public boolean searchDesertTemples = true;
     public boolean searchRuinedPortals = true;
     public boolean getShield = true;

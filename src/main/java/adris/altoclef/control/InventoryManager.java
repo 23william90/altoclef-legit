@@ -62,10 +62,58 @@ public class InventoryManager {
             ensureFoodOnHotbar(mc, player);
             ensureCraftingTableOnHotbar(mc, player);
 
+            // Keep inventory uncluttered so crafting and pick-ups never fail
+            ensureFreeInventorySpace(mc, player);
+
             // Automated 2x2 Crafting for basic materials (wood -> planks -> sticks & crafting table)
             autoCraftBasicMaterials(mc, player);
         } catch (Throwable ignored) {
         }
+    }
+
+    private void ensureFreeInventorySpace(Minecraft mc, LocalPlayer player) {
+        InventoryMenu menu = player.inventoryMenu;
+        if (menu == null || !menu.getCarried().isEmpty()) return;
+        if (mc.gameMode != null && mc.gameMode.isDestroying()) return;
+
+        int emptyCount = 0;
+        for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.USE_ROW_SLOT_END; i++) {
+            if (menu.getSlot(i).getItem().isEmpty()) {
+                emptyCount++;
+            }
+        }
+
+        if (emptyCount >= 3) return;
+
+        int bestDropSlot = -1;
+        int lowestPriority = Integer.MAX_VALUE;
+
+        for (int i = InventoryMenu.INV_SLOT_START; i < InventoryMenu.USE_ROW_SLOT_END; i++) {
+            ItemStack stack = menu.getSlot(i).getItem();
+            if (stack.isEmpty()) continue;
+            String name = getItemName(stack);
+
+            int priority = getJunkPriority(name, stack.getCount());
+            if (priority < lowestPriority) {
+                lowestPriority = priority;
+                bestDropSlot = i;
+            }
+        }
+
+        if (bestDropSlot != -1 && lowestPriority < 100) {
+            // Drop entire junk stack (1 = throw entire stack)
+            mc.gameMode.handleContainerInput(0, bestDropSlot, 1, ContainerInput.THROW, player);
+        }
+    }
+
+    private int getJunkPriority(String name, int count) {
+        if (name.contains("poisonous_potato") || name.contains("spider_eye") || name.contains("rotten_flesh")) return 1;
+        if (name.contains("seeds") || name.contains("sapling")) return 2;
+        if (name.contains("diorite") || name.contains("granite") || name.contains("andesite") || name.contains("tuff")) return 3;
+        if (name.contains("gravel")) return 4;
+        if (name.contains("dirt") && count > 64) return 5;
+        if ((name.contains("cobblestone") || name.contains("cobbled_deepslate")) && count > 128) return 6;
+        return 100;
     }
 
     private void autoCraftBasicMaterials(Minecraft mc, LocalPlayer player) {
