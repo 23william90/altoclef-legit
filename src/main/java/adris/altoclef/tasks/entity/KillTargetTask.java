@@ -39,13 +39,17 @@ public class KillTargetTask extends Task {
         this.targetQuery = targetQuery.trim().toLowerCase();
     }
 
+    public KillTargetTask(LivingEntity target) {
+        this.currentTarget = target;
+        this.targetQuery = target != null ? target.getName().getString().toLowerCase() : "";
+    }
+
     @Override
     protected void onStart() {
         finished = false;
-        currentTarget = null;
         shielding = false;
         approaching = false;
-        setDebugState("Hunting target: " + targetQuery + "...");
+        setDebugState("Hunting target: " + (currentTarget != null ? currentTarget.getName().getString() : targetQuery) + "...");
     }
 
     @Override

@@ -139,6 +139,14 @@ public class GetItemTask extends Task {
             return InventoryManager.countItems(player, "raw_copper", "copper_ore", "copper_ingot") >= count;
         }
 
+        if (clean.equals("food")) {
+            return CollectFoodTask.calculateReadyFood(player) >= count * 4;
+        }
+
+        if (clean.equals("cooked_beef") || clean.equals("steak")) {
+            return InventoryManager.countItems(player, "cooked_beef", "steak") >= count;
+        }
+
         return InventoryManager.countItems(player, clean) >= count;
     }
 
@@ -360,7 +368,220 @@ public class GetItemTask extends Task {
             return new CraftInTableTask("planks");
         }
 
-        // 10. SMELTED MATERIALS
+        // 10. FOOD & SURVIVAL RESOURCES
+        if (clean.equals("food")) {
+            int currentReady = CollectFoodTask.calculateReadyFood(player);
+            if (currentReady >= count * 4) return null;
+            return new CollectFoodTask(count * 4);
+        }
+
+        if (clean.equals("bread")) {
+            if (InventoryManager.countItems(player, "bread") >= count) return null;
+            if (InventoryManager.countItems(player, "wheat") >= 3) {
+                if (!ensureCraftingTable(mc, player)) {
+                    Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+                    if (tableTask != null) return tableTask;
+                }
+                return new CraftInTableTask("bread");
+            }
+            if (InventoryManager.countItems(player, "hay_block") > 0) {
+                return new CraftInTableTask("wheat", 9);
+            }
+            return new CollectFoodTask(count * 5);
+        }
+
+        if (clean.equals("cooked_beef") || clean.equals("steak")) {
+            if (InventoryManager.countItems(player, "cooked_beef", "steak") >= count) return null;
+            if (InventoryManager.countItems(player, "beef") > 0) {
+                if (!ensureFurnace(mc, player)) {
+                    Task furnaceTask = evaluateTree(mc, player, "furnace", 1);
+                    if (furnaceTask != null) return furnaceTask;
+                }
+                return new SmeltInFurnaceTask("beef", count);
+            }
+            return new CollectFoodTask(count * 8);
+        }
+
+        if (clean.equals("cooked_porkchop") || clean.equals("porkchop_cooked")) {
+            if (InventoryManager.countItems(player, "cooked_porkchop") >= count) return null;
+            if (InventoryManager.countItems(player, "porkchop") > 0) {
+                if (!ensureFurnace(mc, player)) {
+                    Task furnaceTask = evaluateTree(mc, player, "furnace", 1);
+                    if (furnaceTask != null) return furnaceTask;
+                }
+                return new SmeltInFurnaceTask("porkchop", count);
+            }
+            return new CollectFoodTask(count * 8);
+        }
+
+        if (clean.equals("cooked_chicken")) {
+            if (InventoryManager.countItems(player, "cooked_chicken") >= count) return null;
+            if (InventoryManager.countItems(player, "chicken") > 0) {
+                if (!ensureFurnace(mc, player)) {
+                    Task furnaceTask = evaluateTree(mc, player, "furnace", 1);
+                    if (furnaceTask != null) return furnaceTask;
+                }
+                return new SmeltInFurnaceTask("chicken", count);
+            }
+            return new CollectFoodTask(count * 6);
+        }
+
+        if (clean.equals("cooked_mutton")) {
+            if (InventoryManager.countItems(player, "cooked_mutton") >= count) return null;
+            if (InventoryManager.countItems(player, "mutton") > 0) {
+                if (!ensureFurnace(mc, player)) {
+                    Task furnaceTask = evaluateTree(mc, player, "furnace", 1);
+                    if (furnaceTask != null) return furnaceTask;
+                }
+                return new SmeltInFurnaceTask("mutton", count);
+            }
+            return new CollectFoodTask(count * 6);
+        }
+
+        if (clean.equals("baked_potato")) {
+            if (InventoryManager.countItems(player, "baked_potato") >= count) return null;
+            if (InventoryManager.countItems(player, "potato") > 0) {
+                if (!ensureFurnace(mc, player)) {
+                    Task furnaceTask = evaluateTree(mc, player, "furnace", 1);
+                    if (furnaceTask != null) return furnaceTask;
+                }
+                return new SmeltInFurnaceTask("potato", count);
+            }
+            return new CollectFoodTask(count * 5);
+        }
+
+        if (clean.equals("apple") || clean.equals("carrot") || clean.equals("potato") ||
+                clean.equals("sweet_berries") || clean.equals("hay_block") || clean.equals("wheat")) {
+            if (InventoryManager.countItems(player, clean) >= count) return null;
+            return new CollectFoodTask(count * 4);
+        }
+
+        // 11. MOB DROPS & HUNTING LOOT
+        if (clean.equals("blaze_rod")) {
+            if (InventoryManager.countItems(player, "blaze_rod") >= count) return null;
+            return new KillAndLootTask("blaze", "blaze_rod", count);
+        }
+
+        if (clean.equals("blaze_powder")) {
+            if (InventoryManager.countItems(player, "blaze_powder") >= count) return null;
+            if (InventoryManager.countItems(player, "blaze_rod") < 1) {
+                Task rodTask = evaluateTree(mc, player, "blaze_rod", 1);
+                if (rodTask != null) return rodTask;
+            }
+            if (!ensureCraftingTable(mc, player)) {
+                Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+                if (tableTask != null) return tableTask;
+            }
+            return new CraftInTableTask("blaze_powder");
+        }
+
+        if (clean.equals("ender_pearl") || clean.equals("pearl")) {
+            if (InventoryManager.countItems(player, "ender_pearl") >= count) return null;
+            return new KillAndLootTask("enderman", "ender_pearl", count);
+        }
+
+        if (clean.equals("ender_eye") || clean.equals("eye_of_ender")) {
+            if (InventoryManager.countItems(player, clean) >= count) return null;
+            if (InventoryManager.countItems(player, "ender_pearl") < 1) {
+                Task pearlTask = evaluateTree(mc, player, "ender_pearl", 1);
+                if (pearlTask != null) return pearlTask;
+            }
+            if (InventoryManager.countItems(player, "blaze_powder") < 1) {
+                Task powderTask = evaluateTree(mc, player, "blaze_powder", 1);
+                if (powderTask != null) return powderTask;
+            }
+            if (!ensureCraftingTable(mc, player)) {
+                Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+                if (tableTask != null) return tableTask;
+            }
+            return new CraftInTableTask("ender_eye");
+        }
+
+        if (clean.equals("leather")) {
+            if (InventoryManager.countItems(player, "leather") >= count) return null;
+            return new KillAndLootTask("cow", "leather", count);
+        }
+
+        if (clean.equals("feather")) {
+            if (InventoryManager.countItems(player, "feather") >= count) return null;
+            return new KillAndLootTask("chicken", "feather", count);
+        }
+
+        if (clean.equals("string")) {
+            if (InventoryManager.countItems(player, "string") >= count) return null;
+            return new KillAndLootTask("spider", "string", count);
+        }
+
+        if (clean.equals("gunpowder")) {
+            if (InventoryManager.countItems(player, "gunpowder") >= count) return null;
+            return new KillAndLootTask("creeper", "gunpowder", count);
+        }
+
+        if (clean.equals("bone") || clean.equals("bones")) {
+            if (InventoryManager.countItems(player, "bone") >= count) return null;
+            return new KillAndLootTask("skeleton", "bone", count);
+        }
+
+        if (clean.equals("arrow") || clean.equals("arrows")) {
+            if (InventoryManager.countItems(player, "arrow") >= count) return null;
+            if (InventoryManager.countItems(player, "flint") >= 1 &&
+                    InventoryManager.countItems(player, "stick") >= 1 &&
+                    InventoryManager.countItems(player, "feather") >= 1) {
+                if (!ensureCraftingTable(mc, player)) {
+                    Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+                    if (tableTask != null) return tableTask;
+                }
+                return new CraftInTableTask("arrow");
+            }
+            return new KillAndLootTask("skeleton", "arrow", count);
+        }
+
+        if (clean.equals("bow")) {
+            if (InventoryManager.countItems(player, "bow") >= count) return null;
+            if (InventoryManager.countItems(player, "string") < 3) {
+                Task stringTask = evaluateTree(mc, player, "string", 3);
+                if (stringTask != null) return stringTask;
+            }
+            if (InventoryManager.countItems(player, "stick") < 3) {
+                Task stickTask = evaluateTree(mc, player, "stick", 3);
+                if (stickTask != null) return stickTask;
+            }
+            if (!ensureCraftingTable(mc, player)) {
+                Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+                if (tableTask != null) return tableTask;
+            }
+            return new CraftInTableTask("bow");
+        }
+
+        if (clean.equals("torch") || clean.equals("torches")) {
+            if (InventoryManager.countItems(player, "torch") >= count) return null;
+            if (InventoryManager.countItems(player, "coal", "charcoal") < 1) {
+                Task coalTask = evaluateTree(mc, player, "coal", 1);
+                if (coalTask != null) return coalTask;
+            }
+            if (InventoryManager.countItems(player, "stick") < 1) {
+                Task stickTask = evaluateTree(mc, player, "stick", 1);
+                if (stickTask != null) return stickTask;
+            }
+            return new CraftInTableTask("torch");
+        }
+
+        if (clean.equals("slime_ball") || clean.equals("slimeball")) {
+            if (InventoryManager.countItems(player, "slime_ball") >= count) return null;
+            return new KillAndLootTask("slime", "slime_ball", count);
+        }
+
+        if (clean.equals("spider_eye")) {
+            if (InventoryManager.countItems(player, "spider_eye") >= count) return null;
+            return new KillAndLootTask("spider", "spider_eye", count);
+        }
+
+        if (clean.equals("rotten_flesh")) {
+            if (InventoryManager.countItems(player, "rotten_flesh") >= count) return null;
+            return new KillAndLootTask("zombie", "rotten_flesh", count);
+        }
+
+        // 12. SMELTED MATERIALS
         if (clean.equals("iron_ingot") || clean.equals("iron")) {
             int currentIngots = InventoryManager.countItems(player, "iron_ingot");
             if (currentIngots >= count) return null;
@@ -660,6 +881,12 @@ public class GetItemTask extends Task {
             }
         }
         return false;
+    }
+
+    private boolean ensureFurnace(Minecraft mc, LocalPlayer player) {
+        if (player == null) return false;
+        if (player.containerMenu instanceof FurnaceMenu) return true;
+        return InventoryManager.countItems(player, "furnace") > 0 || isFurnaceNearby(mc, player, 16);
     }
 
     private boolean isFurnaceNearby(Minecraft mc, LocalPlayer player, int radius) {

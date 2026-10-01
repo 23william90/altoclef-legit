@@ -380,6 +380,79 @@ public class CraftInTableTask extends Task {
         bed.put(8, "plank");
         bed.put(9, "plank");
         RECIPES.put("bed", new RecipeDef(bed, Map.of("wool", 3, "plank", 3)));
+
+        // Bread: 3 wheat (4,5,6)
+        Map<Integer, String> bread = new LinkedHashMap<>();
+        bread.put(4, "wheat");
+        bread.put(5, "wheat");
+        bread.put(6, "wheat");
+        RECIPES.put("bread", new RecipeDef(bread, Map.of("wheat", 3)));
+
+        // Wheat from Hay Block: 1 hay block (5)
+        Map<Integer, String> wheatFromHay = new LinkedHashMap<>();
+        wheatFromHay.put(5, "hay_block");
+        RECIPES.put("wheat", new RecipeDef(wheatFromHay, Map.of("hay_block", 1)));
+
+        // Golden Carrot: 8 gold nuggets, 1 carrot
+        Map<Integer, String> gCarrot = new LinkedHashMap<>();
+        gCarrot.put(1, "gold_nugget");
+        gCarrot.put(2, "gold_nugget");
+        gCarrot.put(3, "gold_nugget");
+        gCarrot.put(4, "gold_nugget");
+        gCarrot.put(5, "carrot");
+        gCarrot.put(6, "gold_nugget");
+        gCarrot.put(7, "gold_nugget");
+        gCarrot.put(8, "gold_nugget");
+        gCarrot.put(9, "gold_nugget");
+        RECIPES.put("golden_carrot", new RecipeDef(gCarrot, Map.of("gold_nugget", 8, "carrot", 1)));
+
+        // Golden Apple: 8 gold ingots, 1 apple
+        Map<Integer, String> gApple = new LinkedHashMap<>();
+        gApple.put(1, "gold_ingot");
+        gApple.put(2, "gold_ingot");
+        gApple.put(3, "gold_ingot");
+        gApple.put(4, "gold_ingot");
+        gApple.put(5, "apple");
+        gApple.put(6, "gold_ingot");
+        gApple.put(7, "gold_ingot");
+        gApple.put(8, "gold_ingot");
+        gApple.put(9, "gold_ingot");
+        RECIPES.put("golden_apple", new RecipeDef(gApple, Map.of("gold_ingot", 8, "apple", 1)));
+
+        // Arrow: 1 flint (2), 1 stick (5), 1 feather (8)
+        Map<Integer, String> arrow = new LinkedHashMap<>();
+        arrow.put(2, "flint");
+        arrow.put(5, "stick");
+        arrow.put(8, "feather");
+        RECIPES.put("arrow", new RecipeDef(arrow, Map.of("flint", 1, "stick", 1, "feather", 1)));
+
+        // Bow: 3 sticks (2, 4, 8), 3 strings (3, 6, 9)
+        Map<Integer, String> bow = new LinkedHashMap<>();
+        bow.put(2, "stick");
+        bow.put(3, "string");
+        bow.put(4, "stick");
+        bow.put(6, "string");
+        bow.put(8, "stick");
+        bow.put(9, "string");
+        RECIPES.put("bow", new RecipeDef(bow, Map.of("stick", 3, "string", 3)));
+
+        // Blaze Powder: 1 blaze rod (5)
+        Map<Integer, String> blazePowder = new LinkedHashMap<>();
+        blazePowder.put(5, "blaze_rod");
+        RECIPES.put("blaze_powder", new RecipeDef(blazePowder, Map.of("blaze_rod", 1)));
+
+        // Eye of Ender: 1 blaze powder (4), 1 ender pearl (5)
+        Map<Integer, String> enderEye = new LinkedHashMap<>();
+        enderEye.put(4, "blaze_powder");
+        enderEye.put(5, "ender_pearl");
+        RECIPES.put("ender_eye", new RecipeDef(enderEye, Map.of("blaze_powder", 1, "ender_pearl", 1)));
+        RECIPES.put("eye_of_ender", new RecipeDef(enderEye, Map.of("blaze_powder", 1, "ender_pearl", 1)));
+
+        // Torch: 1 coal (2), 1 stick (5)
+        Map<Integer, String> torch = new LinkedHashMap<>();
+        torch.put(2, "coal");
+        torch.put(5, "stick");
+        RECIPES.put("torch", new RecipeDef(torch, Map.of("coal", 1, "stick", 1)));
     }
 
     public CraftInTableTask(String itemTarget, int targetCount) {

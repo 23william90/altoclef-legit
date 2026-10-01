@@ -20,6 +20,7 @@ public class AltoClefCommands {
                 new PunkCommand(),
                 new KillCommand(),
                 new GetCommand(),
+                new FoodCommand(),
                 new GotoCommand(),
                 new StopCommand(),
                 new StatusCommand(),

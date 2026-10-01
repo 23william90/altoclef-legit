@@ -519,6 +519,16 @@ public class SmeltInFurnaceTask extends Task {
         if (ingredientKeyword.contains("iron")) return "iron_ingot";
         if (ingredientKeyword.contains("gold")) return "gold_ingot";
         if (ingredientKeyword.contains("copper")) return "copper_ingot";
+        if (ingredientKeyword.contains("beef")) return "cooked_beef";
+        if (ingredientKeyword.contains("porkchop")) return "cooked_porkchop";
+        if (ingredientKeyword.contains("chicken")) return "cooked_chicken";
+        if (ingredientKeyword.contains("mutton")) return "cooked_mutton";
+        if (ingredientKeyword.contains("cod")) return "cooked_cod";
+        if (ingredientKeyword.contains("salmon")) return "cooked_salmon";
+        if (ingredientKeyword.contains("potato")) return "baked_potato";
+        if (ingredientKeyword.contains("sand")) return "glass";
+        if (ingredientKeyword.contains("cobble")) return "stone";
+        if (ingredientKeyword.contains("clay")) return "brick";
         return ingredientKeyword;
     }
 
