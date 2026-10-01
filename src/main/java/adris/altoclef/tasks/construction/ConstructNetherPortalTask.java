@@ -42,12 +42,17 @@ public class ConstructNetherPortalTask extends Task {
     private BlockPos portalOrigin = null;
     private int stepTimer = 0;
     private boolean finished = false;
+    private String startingDimension = null;
 
     @Override
     protected void onStart() {
         portalOrigin = null;
         stepTimer = 0;
         finished = false;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level != null) {
+            startingDimension = mc.level.dimension().toString().toLowerCase();
+        }
         setDebugState("Constructing Nether Portal...");
     }
 
@@ -285,8 +290,11 @@ public class ConstructNetherPortalTask extends Task {
     @Override
     public boolean isFinished() {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level != null && mc.level.dimension().toString().toLowerCase().contains("nether")) {
-            return true;
+        if (mc.level != null && startingDimension != null) {
+            String currentDim = mc.level.dimension().toString().toLowerCase();
+            if (!currentDim.equals(startingDimension)) {
+                return true;
+            }
         }
         return finished;
     }

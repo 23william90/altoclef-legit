@@ -9,19 +9,26 @@ import baritone.api.pathing.goals.GoalNear;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.projectile.EyeOfEnder;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.SwingAnimation;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.EndPortalFrameBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 /**
  * Modern Reactive Stronghold Triangulation & Navigation Engine:
  * Throws Eyes of Ender, calculates mathematical ray intersection (X, Z),
- * paths directly to the Stronghold, and locates the End Portal Frame.
+ * paths directly to the Stronghold, locates portal room, fills empty frames with Eyes,
+ * and enters the End Portal to transition dimensions.
  */
 public class LocateStrongholdTask extends Task {
 
@@ -51,17 +58,45 @@ public class LocateStrongholdTask extends Task {
     protected Task onTick() {
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer player = mc.player;
-        if (player == null || mc.level == null) return null;
+        if (player == null || mc.level == null || mc.gameMode == null) return null;
 
-        // 1. Completion Check: Near End Portal Frame in world
-        BlockPos portalFrame = findNearbyPortalFrame(mc, player, 24);
-        if (portalFrame != null) {
-            setDebugState("Located End Portal Frame at " + portalFrame.toShortString() + "!");
-            finished = true;
+        // 1. If active End Portal block exists nearby, step into it!
+        BlockPos activePortal = findNearbyBlock(mc, player, Blocks.END_PORTAL, 24);
+        if (activePortal != null) {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null && !baritone.getPathingBehavior().isPathing()) {
+                baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(activePortal, 0));
+            }
+            setDebugState("Stepping into active End Portal at " + activePortal.toShortString() + "!");
             return null;
         }
 
-        // 2. Scoop up dropped Eyes of Ender on the ground
+        // 2. If End Portal Frames exist nearby, fill any empty frames with Eyes of Ender!
+        BlockPos emptyFrame = findNearbyEmptyPortalFrame(mc, player, 24);
+        if (emptyFrame != null) {
+            double distSq = player.distanceToSqr(Vec3.atCenterOf(emptyFrame));
+            if (distSq > 12.0) {
+                IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+                if (baritone != null && !baritone.getPathingBehavior().isPathing()) {
+                    baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(emptyFrame, 2));
+                }
+                setDebugState("Moving to fill End Portal Frame at " + emptyFrame.toShortString());
+                return null;
+            }
+            int eyeSlot = ensureHeldEye(player);
+            if (eyeSlot != -1) {
+                Vec3 hitVec = Vec3.atCenterOf(emptyFrame).add(0, 0.5, 0);
+                lookAt(player, hitVec);
+                BlockHitResult hit = new BlockHitResult(hitVec, Direction.UP, emptyFrame, false);
+                mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+                player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
+                setDebugState("Inserted Eye of Ender into frame at " + emptyFrame.toShortString());
+                throwCooldown = 6;
+                return null;
+            }
+        }
+
+        // 3. Scoop up dropped Eyes of Ender on the ground
         ItemEntity droppedEye = findNearbyDroppedEye(mc, player, 16.0);
         if (droppedEye != null) {
             IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
@@ -72,7 +107,7 @@ public class LocateStrongholdTask extends Task {
             return null;
         }
 
-        // 3. Track active in-flight Eye of Ender trajectory
+        // 4. Track active in-flight Eye of Ender trajectory
         if (activeEye != null && activeEye.isAlive() && !activeEye.isRemoved()) {
             Vec3 vel = activeEye.getDeltaMovement();
             if (vel.lengthSqr() > 0.01) {
@@ -96,7 +131,7 @@ public class LocateStrongholdTask extends Task {
         }
         activeEye = null;
 
-        // 4. If Stronghold Target is already triangulated: Path directly there!
+        // 5. If Stronghold Target is already triangulated: Path directly there!
         if (strongholdTarget != null) {
             IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (baritone != null) {
@@ -124,7 +159,7 @@ public class LocateStrongholdTask extends Task {
             }
         }
 
-        // 5. THROW #1: Initial throw from current location
+        // 6. THROW #1: Initial throw from current location
         if (throw1Pos == null || throw1Dir == null) {
             if (throwCooldown-- > 0) return null;
 
@@ -142,7 +177,7 @@ public class LocateStrongholdTask extends Task {
             return null;
         }
 
-        // 6. OFFSET TRAVEL: Travel 40 blocks perpendicular to Throw #1 trajectory before Throw #2
+        // 7. OFFSET TRAVEL: Travel 40 blocks perpendicular to Throw #1 trajectory before Throw #2
         if (throw2Pos == null) {
             Vec3 perp = new Vec3(-throw1Dir.z, 0, throw1Dir.x).normalize();
             BlockPos offsetGoal = BlockPos.containing(throw1Pos.add(perp.scale(40.0)));
@@ -164,7 +199,7 @@ public class LocateStrongholdTask extends Task {
             return null;
         }
 
-        // 7. THROW #2: Secondary throw from offset location
+        // 8. THROW #2: Secondary throw from offset location
         if (throw2Dir == null) {
             if (throwCooldown-- > 0) return null;
 
@@ -228,15 +263,37 @@ public class LocateStrongholdTask extends Task {
         return null;
     }
 
-    private BlockPos findNearbyPortalFrame(Minecraft mc, LocalPlayer player, int radius) {
+    private BlockPos findNearbyBlock(Minecraft mc, LocalPlayer player, Block targetBlock, int radius) {
         if (mc.level == null) return null;
         BlockPos center = player.blockPosition();
         for (int y = -8; y <= 8; y++) {
             for (int x = -radius; x <= radius; x++) {
                 for (int z = -radius; z <= radius; z++) {
                     BlockPos p = center.offset(x, y, z);
-                    if (mc.level.getBlockState(p).is(Blocks.END_PORTAL_FRAME)) {
+                    if (mc.level.getBlockState(p).is(targetBlock)) {
                         return p;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private BlockPos findNearbyEmptyPortalFrame(Minecraft mc, LocalPlayer player, int radius) {
+        if (mc.level == null) return null;
+        BlockPos center = player.blockPosition();
+        for (int y = -8; y <= 8; y++) {
+            for (int x = -radius; x <= radius; x++) {
+                for (int z = -radius; z <= radius; z++) {
+                    BlockPos p = center.offset(x, y, z);
+                    BlockState s = mc.level.getBlockState(p);
+                    if (s.is(Blocks.END_PORTAL_FRAME)) {
+                        try {
+                            if (!s.getValue(EndPortalFrameBlock.HAS_EYE)) {
+                                return p;
+                            }
+                        } catch (Throwable ignored) {
+                        }
                     }
                 }
             }
@@ -252,7 +309,24 @@ public class LocateStrongholdTask extends Task {
                 return i;
             }
         }
+        for (int i = 9; i < 36; i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (!stack.isEmpty() && stack.is(Items.ENDER_EYE)) {
+                InventoryManager.swapToHotbarSlot(Minecraft.getInstance(), player, i, 0);
+                player.getInventory().setSelectedSlot(0);
+                return 0;
+            }
+        }
         return -1;
+    }
+
+    private void lookAt(LocalPlayer player, Vec3 target) {
+        Vec3 diff = target.subtract(player.getEyePosition());
+        double distXZ = Math.sqrt(diff.x * diff.x + diff.z * diff.z);
+        float yaw = (float) (Math.toDegrees(Math.atan2(diff.z, diff.x))) - 90.0F;
+        float pitch = (float) (-Math.toDegrees(Math.atan2(diff.y, distXZ)));
+        player.setYRot(yaw);
+        player.setXRot(pitch);
     }
 
     @Override
@@ -265,6 +339,10 @@ public class LocateStrongholdTask extends Task {
 
     @Override
     public boolean isFinished() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level != null && mc.level.dimension().toString().toLowerCase().contains("the_end")) {
+            return true;
+        }
         return finished;
     }
 
