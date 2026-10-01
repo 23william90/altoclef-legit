@@ -1518,6 +1518,12 @@ public class CraftInTableTask extends Task {
         if (mc.player != null && mc.player.containerMenu instanceof CraftingMenu) {
             mc.player.closeContainer();
         }
+        if (mc.gameMode != null) {
+            mc.gameMode.stopDestroyBlock();
+        }
+        if (mc.options != null && mc.options.keyAttack != null) {
+            mc.options.keyAttack.setDown(false);
+        }
     }
 
     @Override

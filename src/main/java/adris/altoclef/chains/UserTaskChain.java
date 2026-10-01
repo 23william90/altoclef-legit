@@ -8,6 +8,8 @@ import adris.altoclef.eventbus.events.TaskFinishedEvent;
 import adris.altoclef.tasksystem.Task;
 import adris.altoclef.tasksystem.TaskRunner;
 import adris.altoclef.util.time.Stopwatch;
+import baritone.api.utils.input.Input;
+import net.minecraft.client.Minecraft;
 
 // A task chain that runs a user defined task at the same priority.
 // This basically replaces our old Task Runner.
@@ -61,6 +63,7 @@ public class UserTaskChain extends SingleTaskChain {
             onTaskFinish(mod);
         }
         mod.getTaskRunner().disable();
+        releaseInputsAndBlockBreaking(mod);
 
         // FIXME kinda junk, the whole pausing should probably be moved to this class
         mod.setStoredTask(null);
@@ -108,7 +111,7 @@ public class UserTaskChain extends SingleTaskChain {
             // Stop.
             mod.getTaskRunner().disable();
             // Extra reset. Sometimes baritone is laggy and doesn't properly reset our press
-            mod.getClientBaritone().getInputOverrideHandler().clearAllKeys();
+            releaseInputsAndBlockBreaking(mod);
         }
         double seconds = taskStopwatch.time();
         Task oldTask = mainTask;
@@ -119,6 +122,7 @@ public class UserTaskChain extends SingleTaskChain {
         // our `onFinish` might have triggered more tasks.
         boolean actuallyDone = mainTask == null;
         if (actuallyDone) {
+            releaseInputsAndBlockBreaking(mod);
             WorldMemoryTracker.getInstance().clearBlacklist();
             if (!runningIdleTask) {
                 Debug.logMessage("User task FINISHED. Took %s seconds.", prettyPrintTimeDuration(seconds));
@@ -129,6 +133,28 @@ public class UserTaskChain extends SingleTaskChain {
                 signalNextTaskToBeIdleTask();
                 runningIdleTask = true;
             }
+        }
+    }
+
+    private void releaseInputsAndBlockBreaking(AltoClef mod) {
+        try {
+            if (mod.getClientBaritone() != null) {
+                if (mod.getClientBaritone().getPathingBehavior() != null) {
+                    mod.getClientBaritone().getPathingBehavior().forceCancel();
+                }
+                if (mod.getClientBaritone().getInputOverrideHandler() != null) {
+                    mod.getClientBaritone().getInputOverrideHandler().clearAllKeys();
+                    mod.getClientBaritone().getInputOverrideHandler().setInputForceState(Input.CLICK_LEFT, false);
+                }
+            }
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.gameMode != null) {
+                mc.gameMode.stopDestroyBlock();
+            }
+            if (mc.options != null && mc.options.keyAttack != null) {
+                mc.options.keyAttack.setDown(false);
+            }
+        } catch (Throwable ignored) {
         }
     }
 

@@ -515,10 +515,23 @@ public class MineBlockTask extends Task {
         Minecraft mc = Minecraft.getInstance();
         RenderDistanceManager.forceRevert(mc);
         WorldMemoryTracker.getInstance().clearBlacklist();
+        currentBreakingPos = null;
+        breakingStartTime = 0;
         try {
             IBaritone primary = BaritoneAPI.getProvider().getPrimaryBaritone();
             if (primary != null) {
-                primary.getMineProcess().cancel();
+                if (primary.getMineProcess().isActive()) {
+                    primary.getMineProcess().cancel();
+                }
+                primary.getPathingBehavior().forceCancel();
+                primary.getInputOverrideHandler().clearAllKeys();
+                primary.getInputOverrideHandler().setInputForceState(Input.CLICK_LEFT, false);
+            }
+            if (mc.gameMode != null) {
+                mc.gameMode.stopDestroyBlock();
+            }
+            if (mc.options != null && mc.options.keyAttack != null) {
+                mc.options.keyAttack.setDown(false);
             }
         } catch (Throwable ignored) {
         }

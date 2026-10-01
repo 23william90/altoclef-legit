@@ -62,7 +62,7 @@ public class SmeltInFurnaceTask extends Task {
         if (stepTimer-- > 0) return null;
 
         // Check if output is already satisfied (e.g. iron ingots)
-        String outputKeyword = ingredientKeyword.contains("iron") ? "iron_ingot" : "gold_ingot";
+        String outputKeyword = getOutputKeyword();
         if (InventoryManager.countItems(player, outputKeyword) >= targetOutputCount) {
             if (player.containerMenu instanceof FurnaceMenu) {
                 player.closeContainer();
@@ -515,12 +515,25 @@ public class SmeltInFurnaceTask extends Task {
         return -1;
     }
 
+    private String getOutputKeyword() {
+        if (ingredientKeyword.contains("iron")) return "iron_ingot";
+        if (ingredientKeyword.contains("gold")) return "gold_ingot";
+        if (ingredientKeyword.contains("copper")) return "copper_ingot";
+        return ingredientKeyword;
+    }
+
     @Override
     protected void onStop(Task interruptTask) {
         cancelBaritonePathing();
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null && mc.player.containerMenu instanceof FurnaceMenu) {
             mc.player.closeContainer();
+        }
+        if (mc.gameMode != null) {
+            mc.gameMode.stopDestroyBlock();
+        }
+        if (mc.options != null && mc.options.keyAttack != null) {
+            mc.options.keyAttack.setDown(false);
         }
     }
 
@@ -529,7 +542,7 @@ public class SmeltInFurnaceTask extends Task {
         if (finished) return true;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
-            String outputKeyword = ingredientKeyword.contains("iron") ? "iron_ingot" : (ingredientKeyword.contains("gold") ? "gold_ingot" : ingredientKeyword);
+            String outputKeyword = getOutputKeyword();
             if (InventoryManager.countItems(mc.player, outputKeyword) >= targetOutputCount) {
                 finished = true;
                 return true;

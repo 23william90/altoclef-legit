@@ -51,6 +51,10 @@ public class GetItemTask extends Task {
         // Completion check for requested item
         if (isItemAcquired(mc, player, item, targetCount)) {
             setDebugState("Acquired " + targetCount + "x " + item + "!");
+            if (treeSubTask != null) {
+                treeSubTask.stop();
+                treeSubTask = null;
+            }
             return null;
         }
 
@@ -69,13 +73,28 @@ public class GetItemTask extends Task {
             }
         }
 
+        // If the current subtask has finished (e.g. finished mining target count or completed recipe),
+        // stop it cleanly so Baritone releases all inputs, and clear it so tree re-evaluates next step!
+        if (treeSubTask != null && treeSubTask.isFinished()) {
+            treeSubTask.stop();
+            treeSubTask = null;
+        }
+
         // Dynamically evaluate the full task tree every tick
         Task nextAction = evaluateTree(mc, player, item, targetCount);
-        if (nextAction != null && !nextAction.equals(treeSubTask)) {
-            if (treeSubTask != null && !treeSubTask.isFinished()) {
-                treeSubTask.stop(nextAction);
+        if (nextAction != null) {
+            if (treeSubTask == null || !nextAction.equals(treeSubTask)) {
+                if (treeSubTask != null && !treeSubTask.isFinished()) {
+                    treeSubTask.stop(nextAction);
+                }
+                treeSubTask = nextAction;
             }
-            treeSubTask = nextAction;
+        } else {
+            // Tree evaluation reached goal or no action needed
+            if (treeSubTask != null) {
+                treeSubTask.stop();
+                treeSubTask = null;
+            }
         }
 
         return treeSubTask;
@@ -102,6 +121,10 @@ public class GetItemTask extends Task {
                    hasEquippedOrInventory(player, "golden_chestplate") &&
                    hasEquippedOrInventory(player, "golden_leggings") &&
                    hasEquippedOrInventory(player, "golden_boots");
+        }
+
+        if (clean.equals("coal") || clean.equals("coal_ore")) {
+            return InventoryManager.countItems(player, "coal", "charcoal") >= count;
         }
 
         return InventoryManager.countItems(player, clean) >= count;
@@ -269,8 +292,9 @@ public class GetItemTask extends Task {
             }
             // Check fuel
             int fuel = InventoryManager.countItems(player, "coal", "charcoal", "log");
-            if (fuel < Math.max(1, needed / 8)) {
-                return evaluateTree(mc, player, "coal", 4);
+            int neededFuel = Math.max(1, (needed + 7) / 8);
+            if (fuel < neededFuel) {
+                return evaluateTree(mc, player, "coal", Math.max(4, neededFuel));
             }
             // Check raw material
             int raw = InventoryManager.countItems(player, "raw_iron", "iron_ore", "deepslate_iron_ore");
@@ -289,8 +313,9 @@ public class GetItemTask extends Task {
                 return evaluateTree(mc, player, "furnace", 1);
             }
             int fuel = InventoryManager.countItems(player, "coal", "charcoal", "log");
-            if (fuel < Math.max(1, needed / 8)) {
-                return evaluateTree(mc, player, "coal", 4);
+            int neededFuel = Math.max(1, (needed + 7) / 8);
+            if (fuel < neededFuel) {
+                return evaluateTree(mc, player, "coal", Math.max(4, neededFuel));
             }
             int raw = InventoryManager.countItems(player, "raw_gold", "gold_ore", "nether_gold_ore");
             if (raw < needed) {
@@ -306,6 +331,11 @@ public class GetItemTask extends Task {
 
             if (!isFurnaceNearby(mc, player, 16) && InventoryManager.countItems(player, "furnace") == 0) {
                 return evaluateTree(mc, player, "furnace", 1);
+            }
+            int fuel = InventoryManager.countItems(player, "coal", "charcoal", "log");
+            int neededFuel = Math.max(1, (needed + 7) / 8);
+            if (fuel < neededFuel) {
+                return evaluateTree(mc, player, "coal", Math.max(4, neededFuel));
             }
             int raw = InventoryManager.countItems(player, "raw_copper", "copper_ore");
             if (raw < needed) {
@@ -358,7 +388,7 @@ public class GetItemTask extends Task {
             return new MineBlockTask(mod, "copper ore", "copper_ore deepslate_copper_ore", count);
         }
 
-        if (clean.equals("coal")) {
+        if (clean.equals("coal") || clean.equals("coal_ore")) {
             int current = InventoryManager.countItems(player, "coal", "charcoal");
             if (current >= count) return null;
             ToolTier tier = MineBlockTask.getPlayerPickaxeTier(player);
