@@ -453,6 +453,30 @@ public class CraftInTableTask extends Task {
         torch.put(2, "coal");
         torch.put(5, "stick");
         RECIPES.put("torch", new RecipeDef(torch, Map.of("coal", 1, "stick", 1)));
+
+        // Chest: 8 planks (1,2,3,4,6,7,8,9)
+        Map<Integer, String> chest = new LinkedHashMap<>();
+        chest.put(1, "plank");
+        chest.put(2, "plank");
+        chest.put(3, "plank");
+        chest.put(4, "plank");
+        chest.put(6, "plank");
+        chest.put(7, "plank");
+        chest.put(8, "plank");
+        chest.put(9, "plank");
+        RECIPES.put("chest", new RecipeDef(chest, Map.of("plank", 8)));
+
+        // Netherite Ingot: 4 netherite scrap + 4 gold ingots
+        Map<Integer, String> nIngot = new LinkedHashMap<>();
+        nIngot.put(1, "netherite_scrap");
+        nIngot.put(2, "netherite_scrap");
+        nIngot.put(4, "netherite_scrap");
+        nIngot.put(5, "netherite_scrap");
+        nIngot.put(3, "gold_ingot");
+        nIngot.put(6, "gold_ingot");
+        nIngot.put(7, "gold_ingot");
+        nIngot.put(8, "gold_ingot");
+        RECIPES.put("netherite_ingot", new RecipeDef(nIngot, Map.of("netherite_scrap", 4, "gold_ingot", 4)));
     }
 
     public CraftInTableTask(String itemTarget, int targetCount) {

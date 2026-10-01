@@ -654,7 +654,86 @@ public class GetItemTask extends Task {
             return new SmeltInFurnaceTask("raw_copper", needed);
         }
 
-        // 11. RAW / MINED MATERIALS
+        if (clean.equals("glass")) {
+            int current = InventoryManager.countItems(player, "glass");
+            if (current >= count) return null;
+            int needed = count - current;
+            if (!ensureFurnace(mc, player)) {
+                Task fTask = evaluateTree(mc, player, "furnace", 1);
+                if (fTask != null) return fTask;
+            }
+            int sand = InventoryManager.countItems(player, "sand", "red_sand");
+            if (sand < needed) {
+                return new MineBlockTask(mod, "sand", "sand red_sand", needed);
+            }
+            return new SmeltInFurnaceTask("sand", needed);
+        }
+
+        if (clean.equals("smooth_stone")) {
+            int current = InventoryManager.countItems(player, "smooth_stone");
+            if (current >= count) return null;
+            int needed = count - current;
+            if (!ensureFurnace(mc, player)) {
+                Task fTask = evaluateTree(mc, player, "furnace", 1);
+                if (fTask != null) return fTask;
+            }
+            int stone = InventoryManager.countItems(player, "stone");
+            if (stone < needed) {
+                Task stoneTask = evaluateTree(mc, player, "stone", needed);
+                if (stoneTask != null) return stoneTask;
+            }
+            return new SmeltInFurnaceTask("stone", needed);
+        }
+
+        if (clean.equals("netherite_scrap")) {
+            int current = InventoryManager.countItems(player, "netherite_scrap");
+            if (current >= count) return null;
+            int needed = count - current;
+            if (!ensureFurnace(mc, player)) {
+                Task fTask = evaluateTree(mc, player, "furnace", 1);
+                if (fTask != null) return fTask;
+            }
+            int debris = InventoryManager.countItems(player, "ancient_debris");
+            if (debris < needed) {
+                return new MineBlockTask(mod, "ancient debris", "ancient_debris", needed);
+            }
+            return new SmeltInFurnaceTask("ancient_debris", needed);
+        }
+
+        if (clean.equals("netherite_ingot")) {
+            if (InventoryManager.countItems(player, "netherite_ingot") >= count) return null;
+            int scrap = InventoryManager.countItems(player, "netherite_scrap");
+            if (scrap < count * 4) {
+                Task scrapTask = evaluateTree(mc, player, "netherite_scrap", count * 4);
+                if (scrapTask != null) return scrapTask;
+            }
+            int gold = InventoryManager.countItems(player, "gold_ingot");
+            if (gold < count * 4) {
+                Task goldTask = evaluateTree(mc, player, "gold_ingot", count * 4);
+                if (goldTask != null) return goldTask;
+            }
+            if (!ensureCraftingTable(mc, player)) {
+                Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+                if (tableTask != null) return tableTask;
+            }
+            return new CraftInTableTask("netherite_ingot", count);
+        }
+
+        if (clean.equals("chest")) {
+            if (InventoryManager.countItems(player, "chest") >= count) return null;
+            int totalPlanks = InventoryManager.countItems(player, "log") * 4 + InventoryManager.countItems(player, "plank");
+            if (totalPlanks < count * 8) {
+                Task woodTask = evaluateTree(mc, player, "log", Math.max(2, (count * 8 + 3) / 4));
+                if (woodTask != null) return woodTask;
+            }
+            if (!ensureCraftingTable(mc, player)) {
+                Task tableTask = evaluateTree(mc, player, "crafting_table", 1);
+                if (tableTask != null) return tableTask;
+            }
+            return new CraftInTableTask("chest", count);
+        }
+
+        // 13. RAW / MINED MATERIALS
         if (clean.equals("diamond")) {
             int current = InventoryManager.countItems(player, "diamond");
             if (current >= count) return null;

@@ -64,7 +64,7 @@ public class SmeltInFurnaceTask extends Task {
         // Check if output is already satisfied (e.g. iron ingots)
         String outputKeyword = getOutputKeyword();
         if (InventoryManager.countItems(player, outputKeyword) >= targetOutputCount) {
-            if (player.containerMenu instanceof FurnaceMenu) {
+            if (player.containerMenu instanceof AbstractFurnaceMenu) {
                 player.closeContainer();
             }
             finished = true;
@@ -72,8 +72,8 @@ public class SmeltInFurnaceTask extends Task {
             return null;
         }
 
-        // 1. Furnace menu is open!
-        if (player.containerMenu instanceof FurnaceMenu menu) {
+        // 1. Furnace / Blast / Smoker menu is open!
+        if (player.containerMenu instanceof AbstractFurnaceMenu menu) {
             cancelBaritonePathing();
             noSpotTicks = 0;
             placedFurnaceWaitTicks = 0;
@@ -102,10 +102,10 @@ public class SmeltInFurnaceTask extends Task {
                 }
             }
 
-            // Supply fuel if slot 1 is empty
+            // Supply fuel if slot 1 is empty (coal, charcoal, blaze_rod, planks, logs, sticks)
             ItemStack fuelStack = menu.getSlot(AbstractFurnaceMenu.FUEL_SLOT).getItem();
             if (fuelStack.isEmpty()) {
-                int fuelSlot = findSlotInFurnace(menu, "coal", "charcoal", "plank", "log");
+                int fuelSlot = findSlotInFurnace(menu, "coal", "charcoal", "blaze_rod", "plank", "log", "stick");
                 if (fuelSlot != -1) {
                     mc.gameMode.handleContainerInput(containerId, fuelSlot, 0, ContainerInput.QUICK_MOVE, player);
                 }
@@ -327,11 +327,27 @@ public class SmeltInFurnaceTask extends Task {
         }
     }
 
+    private boolean isCompatibleFurnaceBlock(BlockState state) {
+        if (state.is(Blocks.FURNACE)) return true;
+        if (state.is(Blocks.BLAST_FURNACE) && isOreIngredient(ingredientKeyword)) return true;
+        if (state.is(Blocks.SMOKER) && isFoodIngredient(ingredientKeyword)) return true;
+        return false;
+    }
+
+    private boolean isFoodIngredient(String kw) {
+        return kw.contains("beef") || kw.contains("porkchop") || kw.contains("chicken") ||
+               kw.contains("mutton") || kw.contains("potato") || kw.contains("cod") || kw.contains("salmon");
+    }
+
+    private boolean isOreIngredient(String kw) {
+        return kw.contains("iron") || kw.contains("gold") || kw.contains("copper") || kw.contains("debris");
+    }
+
     private BlockPos findNearbyFurnace(Minecraft mc, LocalPlayer player) {
         if (mc.level == null) return null;
         Vec3 eyePos = player.getEyePosition();
 
-        if (placedFurnacePos != null && mc.level.getBlockState(placedFurnacePos).is(Blocks.FURNACE)) {
+        if (placedFurnacePos != null && isCompatibleFurnaceBlock(mc.level.getBlockState(placedFurnacePos))) {
             if (eyePos.distanceTo(Vec3.atCenterOf(placedFurnacePos)) <= 4.2) {
                 return placedFurnacePos;
             }
@@ -345,7 +361,7 @@ public class SmeltInFurnaceTask extends Task {
             for (int y = -2; y <= 2; y++) {
                 for (int z = -3; z <= 3; z++) {
                     BlockPos p = center.offset(x, y, z);
-                    if (mc.level.getBlockState(p).is(Blocks.FURNACE)) {
+                    if (isCompatibleFurnaceBlock(mc.level.getBlockState(p))) {
                         double d = eyePos.distanceToSqr(Vec3.atCenterOf(p));
                         if (d <= 18.0 && d < bestDistSq) {
                             bestDistSq = d;
@@ -369,7 +385,7 @@ public class SmeltInFurnaceTask extends Task {
             for (int y = -4; y <= 4; y++) {
                 for (int z = -radius; z <= radius; z++) {
                     BlockPos p = center.offset(x, y, z);
-                    if (mc.level.getBlockState(p).is(Blocks.FURNACE)) {
+                    if (isCompatibleFurnaceBlock(mc.level.getBlockState(p))) {
                         double d = eyePos.distanceToSqr(Vec3.atCenterOf(p));
                         if (d < bestDistSq) {
                             bestDistSq = d;
@@ -499,7 +515,7 @@ public class SmeltInFurnaceTask extends Task {
         }
     }
 
-    private int findSlotInFurnace(FurnaceMenu menu, String... keywords) {
+    private int findSlotInFurnace(AbstractFurnaceMenu menu, String... keywords) {
         // Slots 3..38 are player inventory in FurnaceMenu
         for (int i = 3; i < menu.slots.size(); i++) {
             ItemStack stack = menu.getSlot(i).getItem();
@@ -536,7 +552,7 @@ public class SmeltInFurnaceTask extends Task {
     protected void onStop(Task interruptTask) {
         cancelBaritonePathing();
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null && mc.player.containerMenu instanceof FurnaceMenu) {
+        if (mc.player != null && mc.player.containerMenu instanceof AbstractFurnaceMenu) {
             mc.player.closeContainer();
         }
         if (mc.gameMode != null) {
