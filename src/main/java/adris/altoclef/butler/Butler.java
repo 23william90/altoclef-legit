@@ -1,182 +1,193 @@
 package adris.altoclef.butler;
 
 import adris.altoclef.AltoClef;
-import adris.altoclef.Debug;
 import adris.altoclef.eventbus.EventBus;
 import adris.altoclef.eventbus.events.ChatMessageEvent;
 import adris.altoclef.eventbus.events.TaskFinishedEvent;
-import adris.altoclef.ui.MessagePriority;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.network.message.MessageType;
-import net.minecraft.world.World;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
 
-import java.util.Objects;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * The butler system lets authorized players send commands to the bot to execute.
- * <p>
- * This effectively makes the bot function as a servant, or butler.
- * <p>
- * Authorization is defined in "altoclef_butler_whitelist.txt" and "altoclef_butler_blacklist.txt"
- * and depends on the "useButlerWhitelist" and "useButlerBlacklist" settings in "altoclef_settings.json"
+ * Modern Reactive Butler System:
+ * Allows authorized players in multiplayer to issue tasks and commands to the bot via whispers or chat.
  */
 public class Butler {
 
-    private static final String BUTLER_MESSAGE_START = "` ";
+    private static final Pattern[] WHISPER_PATTERNS = new Pattern[]{
+            Pattern.compile("^(\\w+) whispers to you: (.*)$", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("^(\\w+) whispers: (.*)$", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("^\\[(\\w+) -> me\\] (.*)$", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("^\\[(\\w+) -> you\\] (.*)$", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("^(\\w+) -> you: (.*)$", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("^<(\\w+)> @?bot (.*)$", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("^<(\\w+)> !bot (.*)$", Pattern.CASE_INSENSITIVE)
+    };
 
     private final AltoClef mod;
-
-    private final WhisperChecker whisperChecker = new WhisperChecker();
-
-    private final UserAuth userAuth;
-
+    private final Set<String> whitelist = new HashSet<>();
+    private final Set<String> blacklist = new HashSet<>();
+    private boolean useWhitelist = false;
+    private boolean useBlacklist = true;
     private String currentUser = null;
-
-    // Utility variables for command logic
-    private boolean commandInstantRan = false;
-    private boolean commandFinished = false;
 
     public Butler(AltoClef mod) {
         this.mod = mod;
-        userAuth = new UserAuth(mod);
+        loadLists();
 
-        // Revoke our current user whenever a task finishes.
+        // Listen for task completion to clear active user
         EventBus.subscribe(TaskFinishedEvent.class, evt -> {
             if (currentUser != null) {
+                sendReply(currentUser, "Task completed.");
                 currentUser = null;
             }
         });
 
-        // Receive system events
+        // Listen for incoming chat messages & whispers
         EventBus.subscribe(ChatMessageEvent.class, evt -> {
-            boolean debug = ButlerConfig.getInstance().whisperFormatDebug;
-            String message = evt.messageContent();
-            String sender = evt.senderName();
-            MessageType messageType = evt.messageType();
-            String receiver = mod.getPlayer().getName().getString();
-            if (sender != null && !Objects.equals(sender, receiver) && shouldAccept(messageType)) {
-                String wholeMessage = sender + " " + receiver + " " + message;
-                if (debug) {
-                    Debug.logMessage("RECEIVED WHISPER: \"" + wholeMessage + "\".");
-                }
-                this.mod.getButler().receiveMessage(wholeMessage, receiver);
-            }
+            String raw = evt.messageContent();
+            if (raw == null || raw.isBlank()) return;
+            handleIncomingChat(raw);
         });
     }
 
-    private static boolean shouldAccept(MessageType messageType) {
-        //#if MC >= 11904
-        return messageType.chat().style().isItalic()
-                && messageType.chat().style().getColor() != null
-                && Objects.equals(messageType.chat().style().getColor().getName(), "gray");
-        //#else
-        //$$ //it doesnt look like previous versions did any type of checking
-        //$$ return true;
-        //#endif
-    }
+    public void handleIncomingChat(String rawMessage) {
+        for (Pattern p : WHISPER_PATTERNS) {
+            Matcher m = p.matcher(rawMessage.trim());
+            if (m.find()) {
+                String sender = m.group(1);
+                String commandText = m.group(2).trim();
 
-    private void receiveMessage(String msg, String receiver) {
-        // Format: <USER> whispers to you: <MESSAGE>
-        // Format: <USER> whispers: <MESSAGE>
-        WhisperChecker.MessageResult result = this.whisperChecker.receiveMessage(mod, receiver, msg);
-        if (result != null) {
-            this.receiveWhisper(result.from, result.message);
-        } else if (ButlerConfig.getInstance().whisperFormatDebug) {
-            Debug.logMessage("    Not Parsing: MSG format not found.");
+                Minecraft mc = Minecraft.getInstance();
+                if (mc.player != null && sender.equalsIgnoreCase(mc.player.getName().getString())) {
+                    // Ignore messages from self
+                    continue;
+                }
+
+                executeWhisper(sender, commandText);
+                return;
+            }
         }
     }
 
-    private void receiveWhisper(String username, String message) {
-
-        boolean debug = ButlerConfig.getInstance().whisperFormatDebug;
-        // Ignore messages from other bots.
-        if (message.startsWith(BUTLER_MESSAGE_START)) {
-            if (debug) {
-                Debug.logMessage("    Rejecting: MSG is detected to be sent from another bot.");
-            }
+    public void executeWhisper(String sender, String commandText) {
+        if (!isAuthorized(sender)) {
+            sendReply(sender, "You are not authorized to command this bot.");
+            AltoClef.getInstance().log("Rejected Butler command from unauthorized user: " + sender);
             return;
         }
 
-        if (userAuth.isUserAuthorized(username)) {
-            executeWhisper(username, message);
+        AltoClef.getInstance().log("Butler received command from " + sender + ": " + commandText);
+        currentUser = sender;
+        sendReply(sender, "Executing: " + commandText);
+
+        String prefix = "@";
+        if (commandText.startsWith("@")) {
+            commandText = commandText.substring(1);
+        }
+
+        String finalCommandText = commandText;
+        AltoClef.getCommandExecutor().execute(prefix + finalCommandText, () -> {
+            sendReply(sender, "Command finished: " + finalCommandText);
+            currentUser = null;
+        }, error -> {
+            sendReply(sender, "Command failed: " + error.getMessage());
+            currentUser = null;
+        });
+    }
+
+    public void sendReply(String targetUser, String message) {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
+        if (player != null && player.connection != null) {
+            try {
+                // Send whisper via vanilla /msg
+                player.connection.sendCommand("msg " + targetUser + " [Butler] " + message);
+            } catch (Throwable t) {
+                mod.log("[Butler -> " + targetUser + "]: " + message);
+            }
         } else {
-            if (debug) {
-                Debug.logMessage("    Rejecting: User \"" + username + "\" is not authorized.");
-            }
-            if (ButlerConfig.getInstance().sendAuthorizationResponse) {
-                sendWhisper(username, ButlerConfig.getInstance().failedAuthorizationResposne.replace("{from}", username), MessagePriority.UNAUTHORIZED);
-            }
+            mod.log("[Butler -> " + targetUser + "]: " + message);
         }
     }
 
-    @SuppressWarnings("BooleanMethodIsAlwaysInverted")
-    public boolean isUserAuthorized(String username) {
-        return userAuth.isUserAuthorized(username);
+    public boolean isAuthorized(String username) {
+        if (useBlacklist && blacklist.contains(username.toLowerCase())) {
+            return false;
+        }
+        if (useWhitelist) {
+            return whitelist.contains(username.toLowerCase());
+        }
+        return true;
     }
 
-    public void onLog(String message, MessagePriority priority) {
-        if (currentUser != null) {
-            sendWhisper(message, priority);
+    public void setUseWhitelist(boolean useWhitelist) {
+        this.useWhitelist = useWhitelist;
+    }
+
+    public void setUseBlacklist(boolean useBlacklist) {
+        this.useBlacklist = useBlacklist;
+    }
+
+    public void addToWhitelist(String username) {
+        whitelist.add(username.toLowerCase());
+        saveLists();
+    }
+
+    public void addToBlacklist(String username) {
+        blacklist.add(username.toLowerCase());
+        saveLists();
+    }
+
+    private void loadLists() {
+        File dir = new File("altoclef");
+        if (!dir.exists()) dir.mkdirs();
+
+        File whiteFile = new File(dir, "butler_whitelist.txt");
+        if (whiteFile.exists()) {
+            try {
+                List<String> lines = Files.readAllLines(whiteFile.toPath());
+                for (String l : lines) {
+                    String clean = l.trim().toLowerCase();
+                    if (!clean.isEmpty() && !clean.startsWith("#")) {
+                        whitelist.add(clean);
+                    }
+                }
+            } catch (IOException ignored) {}
+        }
+
+        File blackFile = new File(dir, "butler_blacklist.txt");
+        if (blackFile.exists()) {
+            try {
+                List<String> lines = Files.readAllLines(blackFile.toPath());
+                for (String l : lines) {
+                    String clean = l.trim().toLowerCase();
+                    if (!clean.isEmpty() && !clean.startsWith("#")) {
+                        blacklist.add(clean);
+                    }
+                }
+            } catch (IOException ignored) {}
         }
     }
 
-    public void onLogWarning(String message, MessagePriority priority) {
-        if (currentUser != null) {
-            sendWhisper("[WARNING:] " + message, priority);
-        }
-    }
-
-    public void tick() {
-        // Nothing for now.
+    private void saveLists() {
+        File dir = new File("altoclef");
+        if (!dir.exists()) dir.mkdirs();
+        try {
+            Files.write(new File(dir, "butler_whitelist.txt").toPath(), whitelist);
+            Files.write(new File(dir, "butler_blacklist.txt").toPath(), blacklist);
+        } catch (IOException ignored) {}
     }
 
     public String getCurrentUser() {
         return currentUser;
-    }
-
-    public boolean hasCurrentUser() {
-        return currentUser != null;
-    }
-
-    private void executeWhisper(String username, String message) {
-        String prevUser = currentUser;
-        commandInstantRan = true;
-        commandFinished = false;
-        currentUser = username;
-        sendWhisper("Command Executing: " + message, MessagePriority.TIMELY);
-
-        String prefix = mod.getModSettings().getCommandPrefix();
-        AltoClef.getCommandExecutor().execute(prefix + message, () -> {
-            // On finish
-            sendWhisper("Command Finished: " + message, MessagePriority.TIMELY);
-            if (!commandInstantRan) {
-                currentUser = null;
-            }
-            commandFinished = true;
-        }, e -> {
-            for (String msg : e.getMessage().split("\n")) {
-                sendWhisper("TASK FAILED: " + msg, MessagePriority.ASAP);
-            }
-            e.printStackTrace();
-            currentUser = null;
-            commandInstantRan = false;
-        });
-        commandInstantRan = false;
-        // Only set the current user if we're still running.
-        if (commandFinished) {
-            currentUser = prevUser;
-        }
-    }
-
-    private void sendWhisper(String message, MessagePriority priority) {
-        if (currentUser != null) {
-            sendWhisper(currentUser, message, priority);
-        } else {
-            Debug.logWarning("Failed to send butler message as there are no users present: " + message);
-        }
-    }
-
-    private void sendWhisper(String username, String message, MessagePriority priority) {
-      mod.getMessageSender().enqueueWhisper(username, BUTLER_MESSAGE_START + message, priority);
     }
 }

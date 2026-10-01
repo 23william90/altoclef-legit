@@ -45,6 +45,7 @@ public class AltoClef implements ModInitializer {
     private boolean paused = false;
     private boolean tabCompleterRegistered = false;
     private final InventoryManager inventoryManager = new InventoryManager();
+    private adris.altoclef.butler.Butler butler;
 
     public static boolean inGame() {
         Minecraft mc = Minecraft.getInstance();
@@ -89,6 +90,7 @@ public class AltoClef implements ModInitializer {
         mlgBucketFallChain = new MLGBucketFallChain(taskRunner);
         deathMenuChain = new DeathMenuChain(taskRunner);
         commandStatusOverlay = new CommandStatusOverlay();
+        butler = new adris.altoclef.butler.Butler(this);
 
         // Clean shutdown handler to prevent Mojang ClientShutdownWatchdog (-8) on client exit
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -335,6 +337,10 @@ public class AltoClef implements ModInitializer {
 
     public Settings getModSettings() {
         return settings;
+    }
+
+    public adris.altoclef.butler.Butler getButler() {
+        return butler;
     }
 
     public LocalPlayer getPlayer() {

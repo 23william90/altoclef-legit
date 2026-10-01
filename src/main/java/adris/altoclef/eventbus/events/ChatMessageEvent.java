@@ -1,29 +1,26 @@
 package adris.altoclef.eventbus.events;
 
-import net.minecraft.network.message.MessageType;
-
 /**
- * Whenever chat appears
+ * Whenever a chat or whisper appears in the client
  */
 public class ChatMessageEvent {
     private final String message;
     private final String senderName;
-    private final MessageType messageType;
 
-    public ChatMessageEvent(String message, String senderName, MessageType messageType) {
+    public ChatMessageEvent(String message, String senderName) {
         this.message = message;
         this.senderName = senderName;
-        this.messageType = messageType;
     }
+
+    public ChatMessageEvent(String message) {
+        this(message, "");
+    }
+
     public String messageContent() {
         return message;
     }
 
     public String senderName() {
         return senderName;
-    }
-
-    public MessageType messageType() {
-        return messageType;
     }
 }

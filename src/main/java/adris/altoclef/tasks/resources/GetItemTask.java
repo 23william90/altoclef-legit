@@ -477,6 +477,10 @@ public class GetItemTask extends Task {
 
         if (clean.equals("ender_pearl") || clean.equals("pearl")) {
             if (InventoryManager.countItems(player, "ender_pearl") >= count) return null;
+            String dimension = mc.level != null ? mc.level.dimension().toString().toLowerCase() : "overworld";
+            if (dimension.contains("nether")) {
+                return new TradeWithPiglinsTask(mod, "ender_pearl", count);
+            }
             return new KillAndLootTask("enderman", "ender_pearl", count);
         }
 

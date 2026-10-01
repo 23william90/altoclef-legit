@@ -2,10 +2,14 @@ package adris.altoclef.tasks.speedrun;
 
 import adris.altoclef.AltoClef;
 import adris.altoclef.control.InventoryManager;
+import adris.altoclef.tasks.construction.ConstructNetherPortalTask;
 import adris.altoclef.tasks.construction.MineBlockTask;
 import adris.altoclef.tasks.construction.MineBlockTask.ToolTier;
 import adris.altoclef.tasks.container.CraftInTableTask;
+import adris.altoclef.tasks.movement.LocateStrongholdTask;
 import adris.altoclef.tasks.resources.GetItemTask;
+import adris.altoclef.tasks.resources.KillAndLootTask;
+import adris.altoclef.tasks.resources.TradeWithPiglinsTask;
 import adris.altoclef.tasksystem.Task;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
@@ -163,16 +167,16 @@ public class MarvionBeatMinecraftTask extends Task {
 
             if (blazeRods < 7) {
                 setDebugState("Tree [Nether]: Fortress Hunting & Blaze Rods (" + blazeRods + "/7)");
-                return new MineBlockTask(mod, "blaze spawners and nether bricks", "spawner nether_bricks", 7);
+                return new KillAndLootTask("blaze", "blaze_rod", 7);
             }
 
             if (pearls < 12) {
                 setDebugState("Tree [Nether]: Piglin Bartering & Ender Pearls (" + pearls + "/12)");
-                return new MineBlockTask(mod, "gold ore for bartering", "nether_gold_ore gold_block", 32);
+                return new TradeWithPiglinsTask(mod, "ender_pearl", 12);
             }
 
             setDebugState("Tree [Nether]: Returning to Overworld Portal");
-            return new MineBlockTask(mod, "nether portal", "nether_portal obsidian", 1);
+            return new ConstructNetherPortalTask();
         }
 
         // 3. OVERWORLD: TREE PROGRESSION
@@ -187,11 +191,7 @@ public class MarvionBeatMinecraftTask extends Task {
                 return new CraftInTableTask("ender_eye");
             }
             setDebugState("Tree: Locating Stronghold and End Portal Frame");
-            return new MineBlockTask(
-                    mod, "stronghold portal frame and stone bricks",
-                    "end_portal_frame stone_bricks",
-                    1
-            );
+            return new LocateStrongholdTask();
         }
 
         // Step 3b: Collect Beds for Dragon 1-Cycle
@@ -234,7 +234,7 @@ public class MarvionBeatMinecraftTask extends Task {
         }
 
         setDebugState("Tree: Constructing & Entering Nether Portal");
-        return new MineBlockTask(mod, "nether portal", "nether_portal obsidian", 1);
+        return new ConstructNetherPortalTask();
     }
 
     private void applyPerformanceOptimizations(Minecraft mc, Task currentTask) {

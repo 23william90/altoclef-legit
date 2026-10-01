@@ -1,227 +1,311 @@
 package adris.altoclef.tasks.resources;
 
 import adris.altoclef.AltoClef;
-import adris.altoclef.Debug;
-import adris.altoclef.TaskCatalogue;
-import adris.altoclef.tasks.ResourceTask;
-import adris.altoclef.tasks.entity.AbstractDoToEntityTask;
-import adris.altoclef.tasks.movement.TimeoutWanderTask;
+import adris.altoclef.control.InventoryManager;
+import adris.altoclef.tasks.construction.MineBlockTask;
+import adris.altoclef.tasks.container.CraftInTableTask;
 import adris.altoclef.tasksystem.Task;
-import adris.altoclef.util.ItemTarget;
-import adris.altoclef.util.helpers.EntityHelper;
-import adris.altoclef.util.time.TimerGame;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.mob.HoglinEntity;
-import net.minecraft.entity.mob.PiglinEntity;
-import net.minecraft.item.Item;
-import net.minecraft.item.Items;
-import net.minecraft.util.Hand;
+import baritone.api.BaritoneAPI;
+import baritone.api.IBaritone;
+import baritone.api.pathing.goals.GoalNear;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.monster.piglin.Piglin;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.Vec3;
 
-import java.util.HashSet;
-import java.util.Optional;
+import java.util.Comparator;
+import java.util.List;
 
-public class TradeWithPiglinsTask extends ResourceTask {
+/**
+ * Modern Reactive Piglin Bartering Engine:
+ * Equips gold armor for safety, locates adult Piglins, tosses gold ingots,
+ * and vacuums up bartered drops (Ender Pearls, Fire Resistance, Obsidian).
+ */
+public class TradeWithPiglinsTask extends Task {
 
-    // TODO: Settings? Custom parameter?
-    private static final boolean AVOID_HOGLINS = true;
-    private static final double HOGLIN_AVOID_TRADE_RADIUS = 64;
-    // If we're too far away from a trading piglin, we risk deloading them and losing the trade.
-    private static final double TRADING_PIGLIN_TOO_FAR_AWAY = 64 + 8;
-    private final int goldBuffer;
-    private final Task tradeTask = new PerformTradeWithPiglin();
-    private Task goldTask = null;
+    private final AltoClef mod;
+    private final String targetItem;
+    private final int targetCount;
+    private int barterCooldown = 0;
+    private Task subTask = null;
+    private Piglin targetPiglin = null;
 
-    public TradeWithPiglinsTask(int goldBuffer, ItemTarget[] itemTargets) {
-        super(itemTargets);
-        this.goldBuffer = goldBuffer;
+    public TradeWithPiglinsTask(AltoClef mod, String targetItem, int targetCount) {
+        this.mod = mod;
+        this.targetItem = targetItem;
+        this.targetCount = targetCount;
     }
 
-    public TradeWithPiglinsTask(int goldBuffer, ItemTarget target) {
-        super(target);
-        this.goldBuffer = goldBuffer;
-    }
-
-    public TradeWithPiglinsTask(int goldBuffer, Item item, int targetCount) {
-        super(item, targetCount);
-        this.goldBuffer = goldBuffer;
+    public TradeWithPiglinsTask(AltoClef mod, int enderPearls) {
+        this(mod, "ender_pearl", enderPearls);
     }
 
     @Override
-    protected boolean shouldAvoidPickingUp(AltoClef mod) {
+    protected void onStart() {
+        barterCooldown = 0;
+        subTask = null;
+        targetPiglin = null;
+        setDebugState("Initializing Piglin Bartering Engine for " + targetItem + " (" + targetCount + ")...");
+    }
+
+    @Override
+    protected Task onTick() {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
+        if (player == null || mc.level == null || mc.gameMode == null) return null;
+
+        // 1. Completion Check
+        int currentCount = InventoryManager.countItems(player, targetItem);
+        if (currentCount >= targetCount) {
+            setDebugState("Acquired " + currentCount + "/" + targetCount + " " + targetItem + " from Piglin Bartering!");
+            return null;
+        }
+
+        // 2. Ensure Gold Armor is equipped (prevents Piglin aggression)
+        if (!hasGoldArmorEquipped(player)) {
+            // Check inventory for any golden armor piece
+            int goldArmorSlot = findGoldArmorInInventory(player);
+            if (goldArmorSlot != -1) {
+                // Equip it
+                equipArmorFromSlot(mc, player, goldArmorSlot);
+                setDebugState("Equipping Golden Armor piece...");
+                return null;
+            } else if (InventoryManager.countItems(player, "gold_ingot") >= 5) {
+                setDebugState("Crafting Golden Helmet for Piglin pacification...");
+                return new GetItemTask(mod, "golden_helmet", 1);
+            }
+        }
+
+        // 3. Priority: Vacuum up any nearby bartered ground items (pearls, drops)
+        ItemEntity droppedTarget = findNearbyTargetDrop(mc, player, 16.0);
+        if (droppedTarget != null) {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null && !baritone.getPathingBehavior().isPathing()) {
+                baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(droppedTarget.blockPosition(), 0));
+            }
+            setDebugState("Picking up bartered " + targetItem + " drop!");
+            return null;
+        }
+
+        // Also vacuum other nearby item entities near piglins if close
+        ItemEntity anyDrop = findNearbyDrop(mc, player, 5.0);
+        if (anyDrop != null && player.distanceToSqr(anyDrop) > 1.5) {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null && !baritone.getPathingBehavior().isPathing()) {
+                baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(anyDrop.blockPosition(), 0));
+            }
+            setDebugState("Scooping up bartered drops...");
+            return null;
+        }
+
+        // 4. Ensure player has Gold Ingots to barter
+        int goldIngots = InventoryManager.countItems(player, "gold_ingot");
+        if (goldIngots < 1) {
+            // Check for gold nuggets
+            int nuggets = InventoryManager.countItems(player, "gold_nugget");
+            if (nuggets >= 9) {
+                setDebugState("Crafting Gold Ingot from nuggets...");
+                return new CraftInTableTask("gold_ingot");
+            }
+            // Acquire gold ingots (mine nether gold ore or smelt)
+            setDebugState("Need Gold Ingots to barter with Piglins (Mining Nether Gold)...");
+            return new GetItemTask(mod, "gold_ingot", Math.max(8, (targetCount - currentCount) * 2));
+        }
+
+        // 5. Cooldown between tossing gold
+        if (barterCooldown-- > 0) {
+            setDebugState("Waiting for Piglin bartering roll (" + barterCooldown + " ticks)...");
+            return null;
+        }
+
+        // 6. Find nearest adult Piglin
+        if (targetPiglin == null || !targetPiglin.isAlive() || targetPiglin.isRemoved() || targetPiglin.isBaby()) {
+            targetPiglin = findNearestAdultPiglin(mc, player, 32.0);
+        }
+
+        if (targetPiglin == null) {
+            // Wander / explore in Nether to find Piglins
+            setDebugState("Searching for Piglins in Nether (Crimson Forest / Nether Wastes)...");
+            return new MineBlockTask(mod, "nether gold or crimson terrain", "nether_gold_ore crimson_nylium netherrack", 1);
+        }
+
+        double distSq = player.distanceToSqr(targetPiglin);
+        IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+
+        // 7. Approach Piglin within 3.5 blocks
+        if (distSq > 12.0) {
+            if (baritone != null && !baritone.getPathingBehavior().isPathing()) {
+                baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(targetPiglin.blockPosition(), 3));
+            }
+            setDebugState("Approaching Piglin at " + targetPiglin.blockPosition().toShortString() + " (" + (int) Math.sqrt(distSq) + "m)...");
+            return null;
+        }
+
+        // 8. Close enough: Look at Piglin's feet and toss 1 Gold Ingot!
+        int goldSlot = ensureHeldGoldIngot(player);
+        if (goldSlot == -1) {
+            setDebugState("Equipping Gold Ingot to hotbar...");
+            return null;
+        }
+
+        lookAt(player, targetPiglin.position());
+        // Drop 1 single gold ingot
+        mc.gameMode.dropItem(player, false);
+        AltoClef.getInstance().log("Tossed Gold Ingot to Piglin at " + targetPiglin.blockPosition().toShortString());
+
+        barterCooldown = 120; // Piglin takes ~6-8 seconds to inspect gold and drop item
+        setDebugState("Tossed Gold Ingot! Awaiting bartered drop...");
+        return null;
+    }
+
+    private boolean hasGoldArmorEquipped(LocalPlayer player) {
+        for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+            ItemStack stack = player.getItemBySlot(slot);
+            if (!stack.isEmpty()) {
+                String name = InventoryManager.getItemName(stack);
+                if (name.contains("golden_") || name.contains("gold_")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private int findGoldArmorInInventory(LocalPlayer player) {
+        for (int i = 0; i < 36; i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (!stack.isEmpty()) {
+                String name = InventoryManager.getItemName(stack);
+                if (name.contains("golden_helmet") || name.contains("golden_chestplate")
+                        || name.contains("golden_leggings") || name.contains("golden_boots")) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private void equipArmorFromSlot(Minecraft mc, LocalPlayer player, int invSlot) {
+        if (invSlot < 9) {
+            player.getInventory().setSelectedSlot(invSlot);
+            mc.gameMode.useItem(player, net.minecraft.world.InteractionHand.MAIN_HAND);
+        } else {
+            // Swap to hotbar slot 0 then use
+            int emptyHotbar = 0;
+            player.getInventory().setSelectedSlot(emptyHotbar);
+            InventoryManager.swapToHotbarSlot(mc, player, invSlot, emptyHotbar);
+            mc.gameMode.useItem(player, net.minecraft.world.InteractionHand.MAIN_HAND);
+        }
+    }
+
+    private int ensureHeldGoldIngot(LocalPlayer player) {
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (!stack.isEmpty() && InventoryManager.getItemName(stack).equals("gold_ingot")) {
+                player.getInventory().setSelectedSlot(i);
+                return i;
+            }
+        }
+        // Check main inventory and swap to hotbar
+        for (int i = 9; i < 36; i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (!stack.isEmpty() && InventoryManager.getItemName(stack).equals("gold_ingot")) {
+                InventoryManager.swapToHotbarSlot(Minecraft.getInstance(), player, i, 0);
+                player.getInventory().setSelectedSlot(0);
+                return 0;
+            }
+        }
+        return -1;
+    }
+
+    private Piglin findNearestAdultPiglin(Minecraft mc, LocalPlayer player, double maxDist) {
+        if (mc.level == null) return null;
+        double maxDistSq = maxDist * maxDist;
+        Piglin nearest = null;
+        double nearestDistSq = Double.MAX_VALUE;
+
+        for (net.minecraft.world.entity.Entity e : mc.level.entitiesForRendering()) {
+            if (e instanceof Piglin piglin && piglin.isAlive() && !piglin.isBaby()) {
+                double dSq = player.distanceToSqr(piglin);
+                if (dSq <= maxDistSq && dSq < nearestDistSq) {
+                    nearest = piglin;
+                    nearestDistSq = dSq;
+                }
+            }
+        }
+        return nearest;
+    }
+
+    private ItemEntity findNearbyTargetDrop(Minecraft mc, LocalPlayer player, double radius) {
+        if (mc.level == null) return null;
+        double rSq = radius * radius;
+        for (net.minecraft.world.entity.Entity e : mc.level.entitiesForRendering()) {
+            if (e instanceof ItemEntity item && item.isAlive()) {
+                String name = InventoryManager.getItemName(item.getItem());
+                if (name.contains(targetItem)) {
+                    if (player.distanceToSqr(item) <= rSq) {
+                        return item;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private ItemEntity findNearbyDrop(Minecraft mc, LocalPlayer player, double radius) {
+        if (mc.level == null) return null;
+        double rSq = radius * radius;
+        for (net.minecraft.world.entity.Entity e : mc.level.entitiesForRendering()) {
+            if (e instanceof ItemEntity item && item.isAlive()) {
+                if (player.distanceToSqr(item) <= rSq) {
+                    return item;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void lookAt(LocalPlayer player, Vec3 target) {
+        Vec3 diff = target.subtract(player.getEyePosition());
+        double distXZ = Math.sqrt(diff.x * diff.x + diff.z * diff.z);
+        float yaw = (float) (Math.toDegrees(Math.atan2(diff.z, diff.x))) - 90.0F;
+        float pitch = (float) (-Math.toDegrees(Math.atan2(diff.y, distXZ)));
+        player.setYRot(yaw);
+        player.setXRot(pitch);
+    }
+
+    @Override
+    protected void onStop(Task interruptTask) {
+        IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+        if (baritone != null && baritone.getCustomGoalProcess().isActive()) {
+            baritone.getCustomGoalProcess().path();
+        }
+    }
+
+    @Override
+    public boolean isFinished() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) {
+            return InventoryManager.countItems(mc.player, targetItem) >= targetCount;
+        }
         return false;
     }
 
     @Override
-    protected void onResourceStart(AltoClef mod) {
-
+    protected boolean isEqual(Task other) {
+        if (other instanceof TradeWithPiglinsTask task) {
+            return task.targetItem.equals(targetItem) && task.targetCount == targetCount;
+        }
+        return false;
     }
 
     @Override
-    protected Task onResourceTick(AltoClef mod) {
-        // Collect gold if we don't have it.
-        if (goldTask != null && goldTask.isActive() && !goldTask.isFinished()) {
-            setDebugState("Collecting gold");
-            return goldTask;
-        }
-        if (!mod.getItemStorage().hasItem(Items.GOLD_INGOT)) {
-            if (goldTask == null) goldTask = TaskCatalogue.getItemTask(Items.GOLD_INGOT, goldBuffer);
-            return goldTask;
-        }
-
-        // If we have no piglin nearby, explore until we find piglin.
-        if (!mod.getEntityTracker().entityFound(PiglinEntity.class)) {
-            setDebugState("Wandering");
-            return new TimeoutWanderTask(false);
-        }
-
-        // If we have a trading piglin that's too far away, get closer to it.
-
-        // Find gold and trade with a piglin
-        setDebugState("Trading with Piglin");
-        return tradeTask;
+    protected String toDebugString() {
+        return "Trade with Piglins for " + targetItem + " (" + targetCount + ")";
     }
-
-    @Override
-    protected void onResourceStop(AltoClef mod, Task interruptTask) {
-
-    }
-
-    @Override
-    protected boolean isEqualResource(ResourceTask other) {
-        return other instanceof TradeWithPiglinsTask;
-    }
-
-    @Override
-    protected String toDebugStringName() {
-        return "Trading with Piglins";
-    }
-
-    static class PerformTradeWithPiglin extends AbstractDoToEntityTask {
-
-        private static final double PIGLIN_NEARBY_RADIUS = 10;
-        private final TimerGame _barterTimeout = new TimerGame(2);
-        private final TimerGame _intervalTimeout = new TimerGame(10);
-        private final HashSet<Entity> _blacklisted = new HashSet<>();
-        private Entity _currentlyBartering = null;
-
-        public PerformTradeWithPiglin() {
-            super(3);
-        }
-
-        @Override
-        protected void onStart() {
-            super.onStart();
-            AltoClef mod = AltoClef.getInstance();
-
-            mod.getBehaviour().push();
-
-            // Don't throw away our gold lol
-            mod.getBehaviour().addProtectedItems(Items.GOLD_INGOT);
-
-            // Don't attack piglins unless we've blacklisted them.
-            mod.getBehaviour().addForceFieldExclusion(entity -> {
-                if (entity instanceof PiglinEntity) {
-                    return !_blacklisted.contains(entity);
-                }
-                return false;
-            });
-            //_blacklisted.clear();
-        }
-
-        @Override
-        protected void onStop(Task interruptTask) {
-            super.onStop(interruptTask);
-            AltoClef.getInstance().getBehaviour().pop();
-        }
-
-        @Override
-        protected boolean isSubEqual(AbstractDoToEntityTask other) {
-            return other instanceof PerformTradeWithPiglin;
-        }
-
-        @Override
-        protected Task onEntityInteract(AltoClef mod, Entity entity) {
-
-            // If we didn't run this in a while, we can retry bartering.
-            if (_intervalTimeout.elapsed()) {
-                // We didn't interact for a while, continue bartering as usual.
-                _barterTimeout.reset();
-                _intervalTimeout.reset();
-            }
-
-            // We're trading so reset the barter timeout
-            if (EntityHelper.isTradingPiglin(_currentlyBartering)) {
-                _barterTimeout.reset();
-            }
-
-            // We're bartering a new entity.
-            if (!entity.equals(_currentlyBartering)) {
-                _currentlyBartering = entity;
-                _barterTimeout.reset();
-            }
-
-            if (_barterTimeout.elapsed()) {
-                // We failed bartering.
-                Debug.logMessage("Failed bartering with current piglin, blacklisting.");
-                _blacklisted.add(_currentlyBartering);
-                _barterTimeout.reset();
-                _currentlyBartering = null;
-                return null;
-            }
-
-            if (AVOID_HOGLINS && _currentlyBartering != null && !EntityHelper.isTradingPiglin(_currentlyBartering)) {
-                Optional<Entity> closestHoglin = mod.getEntityTracker().getClosestEntity(_currentlyBartering.getPos(), HoglinEntity.class);
-                if (closestHoglin.isPresent() && closestHoglin.get().isInRange(entity, HOGLIN_AVOID_TRADE_RADIUS)) {
-                    Debug.logMessage("Aborting further trading because a hoglin showed up");
-                    _blacklisted.add(_currentlyBartering);
-                    _barterTimeout.reset();
-                    _currentlyBartering = null;
-                }
-            }
-
-            setDebugState("Trading with piglin");
-
-            if (mod.getSlotHandler().forceEquipItem(Items.GOLD_INGOT)) {
-                mod.getController().interactEntity(mod.getPlayer(), entity, Hand.MAIN_HAND);
-                _intervalTimeout.reset();
-            }
-            return null;
-        }
-
-        @Override
-        protected Optional<Entity> getEntityTarget(AltoClef mod) {
-            // Ignore trading piglins
-            Optional<Entity> found = mod.getEntityTracker().getClosestEntity(mod.getPlayer().getPos(),
-                    entity -> {
-                        if (_blacklisted.contains(entity)
-                                || EntityHelper.isTradingPiglin(entity)
-                                || (entity instanceof LivingEntity && ((LivingEntity) entity).isBaby())
-                                || (_currentlyBartering != null && !entity.isInRange(_currentlyBartering, PIGLIN_NEARBY_RADIUS))) {
-                            return false;
-                        }
-
-                        if (AVOID_HOGLINS) {
-                            // Avoid trading if hoglin is anywhere remotely nearby.
-                            Optional<Entity> closestHoglin = mod.getEntityTracker().getClosestEntity(entity.getPos(), HoglinEntity.class);
-                            return closestHoglin.isEmpty() || !closestHoglin.get().isInRange(entity, HOGLIN_AVOID_TRADE_RADIUS);
-                        }
-                        return true;
-                    }, PiglinEntity.class
-            );
-            if (found.isEmpty()) {
-                if (_currentlyBartering != null && (_blacklisted.contains(_currentlyBartering) || !_currentlyBartering.isAlive())) {
-                    _currentlyBartering = null;
-                }
-                found = Optional.ofNullable(_currentlyBartering);
-            }
-            return found;
-        }
-
-        @Override
-        protected String toDebugString() {
-            return "Trading with piglin";
-        }
-    }
-
 }

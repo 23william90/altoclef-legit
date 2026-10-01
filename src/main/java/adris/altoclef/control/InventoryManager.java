@@ -433,8 +433,8 @@ public class InventoryManager {
         );
     }
 
-    private void swapToHotbar(Minecraft mc, LocalPlayer player, int slotNum, int hotbarSlot) {
-        if (mc.gameMode != null && mc.gameMode.isDestroying()) return;
+    public static void swapToHotbarSlot(Minecraft mc, LocalPlayer player, int slotNum, int hotbarSlot) {
+        if (mc.gameMode == null || (mc.gameMode.isDestroying())) return;
         mc.gameMode.handleContainerInput(
                 InventoryMenu.CONTAINER_ID,
                 slotNum,
@@ -442,6 +442,10 @@ public class InventoryManager {
                 ContainerInput.SWAP,
                 player
         );
+    }
+
+    private void swapToHotbar(Minecraft mc, LocalPlayer player, int slotNum, int hotbarSlot) {
+        swapToHotbarSlot(mc, player, slotNum, hotbarSlot);
     }
 
     private boolean isThrowaway(ItemStack stack) {

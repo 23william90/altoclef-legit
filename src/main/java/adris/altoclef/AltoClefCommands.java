@@ -28,6 +28,8 @@ public class AltoClefCommands {
                 new ReloadSettingsCommand(),
                 new PauseCommand(),
                 new UnPauseCommand(),
+                new WhisperCommand(),
+                new ButlerCommand(),
                 new TestCommand()
         );
     }
